@@ -1,4 +1,6 @@
-# SCTP NKE for Mac OS X 10.11 (El Capitan)
+# SCTP NKE for Mac OS X 10.13 (High Sierra)
+
+This is work in progress and not working yet!
 
 The sources are based on the SCTP implementation of the FreeBSD kernel modified to work
 within the Mac OS X kernel infrastructure as a network kernel extension. This allows
