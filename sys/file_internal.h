@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2014 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2016 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  * 
@@ -75,10 +75,13 @@
 #include <sys/lock.h>
 #include <sys/file.h>
 #include <sys/filedesc.h>
+#include <sys/guarded.h>
 
 struct proc;
 struct uio;
 struct knote;
+struct kevent_internal_s;
+
 #ifdef __APPLE_API_UNSTABLE
 
 struct file;
@@ -144,7 +147,8 @@ typedef enum {
 	DTYPE_KQUEUE,		/* kqueue */
 	DTYPE_PIPE,		/* pipe */
 	DTYPE_FSEVENTS,		/* fsevents */
-	DTYPE_ATALK		/* (obsolete) */
+	DTYPE_ATALK,		/* (obsolete) */
+	DTYPE_NETPOLICY,	/* networking policy */
 } file_type_t;
 
 /* defines for fg_lflags */
@@ -181,11 +185,11 @@ struct fileglob {
 					 void *wql, vfs_context_t ctx);
 		int	(*fo_close)	(struct fileglob *fg, vfs_context_t ctx);
 		int	(*fo_kqfilter)	(struct fileproc *fp, struct knote *kn,
-					 vfs_context_t ctx);
+					 struct kevent_internal_s *kev, vfs_context_t ctx);
 		int	(*fo_drain)	(struct fileproc *fp, vfs_context_t ctx);
 	} *fg_ops;
 	off_t	fg_offset;
-	void 	*fg_data;		/* vnode or socket or SHM or semaphore */
+	void 	*fg_data;	/* vnode or socket or SHM or semaphore */
 	void	*fg_vn_data;	/* Per fd vnode data, used for directories */
 	lck_mtx_t fg_lock;
 #if CONFIG_MACF
@@ -211,7 +215,8 @@ int fo_write(struct fileproc *fp, struct uio *uio, int flags,
 int fo_ioctl(struct fileproc *fp, u_long com, caddr_t data, vfs_context_t ctx);
 int fo_select(struct fileproc *fp, int which, void *wql, vfs_context_t ctx);
 int fo_close(struct fileglob *fg, vfs_context_t ctx);
-int fo_kqfilter(struct fileproc *fp, struct knote *kn, vfs_context_t ctx);
+int fo_kqfilter(struct fileproc *fp, struct knote *kn,
+		struct kevent_internal_s *kev, vfs_context_t ctx);
 void fileproc_drain(proc_t, struct fileproc *);
 int fp_tryswap(proc_t, int fd, struct fileproc *nfp);
 int fp_drop(struct proc *p, int fd, struct fileproc *fp, int locked);
@@ -229,7 +234,6 @@ int fp_getfpipe(struct proc *p, int fd, struct fileproc **resultfp, struct pipe 
 struct atalk;
 int fp_getfatalk(struct proc *p, int fd, struct fileproc **resultfp, struct atalk  **resultatalk);
 struct vnode;
-int fp_getfvp(struct proc *p, int fd, struct fileproc **resultfp, struct vnode  **resultvp);
 int fp_getfvpandvid(struct proc *p, int fd, struct fileproc **resultfp, struct vnode  **resultvp, uint32_t * vidp);
 struct socket;
 int fp_getfsock(struct proc *p, int fd, struct fileproc **resultfp, struct socket  **results);
@@ -261,6 +265,8 @@ extern void fileproc_free(struct fileproc *fp);
 extern void guarded_fileproc_free(struct fileproc *fp);
 extern void fg_vn_data_free(void *fgvndata);
 extern int nameiat(struct nameidata *ndp, int dirfd);
+extern int falloc_guarded(struct proc *p, struct fileproc **fp, int *fd,
+    vfs_context_t ctx, const guardid_t *guard, u_int attrs);
 __END_DECLS
 
 #endif /* __APPLE_API_UNSTABLE */

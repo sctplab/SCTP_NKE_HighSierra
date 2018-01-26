@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2015 Apple Inc. All rights reserved.
+ * Copyright (c) 1999-2017 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -81,6 +81,9 @@
 
 #include <sys/cdefs.h>
 #include <sys/appleapiopts.h>
+#include <sys/_types/_u_int32_t.h> /* u_int32_t */
+#include <sys/_types/_u_int64_t.h> /* u_int64_t */
+#include <sys/_types/_u_short.h> /* u_short */
 
 #ifdef XNU_KERNEL_PRIVATE
 
@@ -127,9 +130,11 @@
 /*
  * Macros for type conversion
  * mtod(m,t) -	convert mbuf pointer to data pointer of correct type
+ * mtodo(m, o) -- Same as above but with offset 'o' into data.
  * dtom(x) -	convert data pointer within mbuf to mbuf pointer (XXX)
  */
 #define	mtod(m, t)	((t)m_mtod(m))
+#define mtodo(m, o)     ((void *)(mtod(m, uint8_t *) + (o)))
 #define	dtom(x)		m_dtom(x)
 
 /* header at beginning of each mbuf: */
@@ -140,7 +145,18 @@ struct m_hdr {
 	int32_t		mh_len;		/* amount of data in this mbuf */
 	u_int16_t	mh_type;	/* type of data in this mbuf */
 	u_int16_t	mh_flags;	/* flags; see below */
+#if __arm__ && (__BIGGEST_ALIGNMENT__ > 4)
+/* This is needed because of how _MLEN is defined and used. Ideally, _MLEN
+ * should be defined using the offsetof(struct mbuf, M_dat), since there is
+ * no guarantee that mbuf.M_dat will start where mbuf.m_hdr ends. The compiler
+ * may (and does in the armv7k case) insert padding between m_hdr and M_dat in
+ * mbuf. We cannot easily use offsetof, however, since _MLEN is referenced
+ * in the definition of mbuf.
+ */
+} __attribute__((aligned(8)));
+#else
 };
+#endif
 
 /*
  * Packet tag structure (see below for details).
@@ -199,9 +215,6 @@ struct pf_mtag {
 	u_int16_t	pftag_rtableid;	/* alternate routing table id */
 	u_int16_t	pftag_tag;
 	u_int16_t	pftag_routed;
-#if PF_ALTQ
-	u_int32_t	pftag_qid;
-#endif /* PF_ALTQ */
 #if PF_ECN
 	void		*pftag_hdr;	/* saved hdr pos in mbuf, for ECN */
 #endif /* PF_ECN */
@@ -214,6 +227,7 @@ struct tcp_pktinfo {
 	union {
 		struct {
 			u_int32_t segsz;	/* segment size (actual MSS) */
+			u_int32_t start_seq;	/* start seq of this packet */
 		} __tx;
 		struct {
 			u_int16_t lro_pktlen;	/* max seg size encountered */
@@ -226,6 +240,7 @@ struct tcp_pktinfo {
 		u_int32_t	seq;		/* recv msg sequence # */
 	} __msgattr;
 #define tso_segsz	proto_mtag.__pr_u.tcp.tm_tcp.__offload.__tx.segsz
+#define	tx_start_seq	proto_mtag.__pr_u.tcp.tm_tcp.__offload.__tx.start_seq
 #define lro_pktlen	proto_mtag.__pr_u.tcp.tm_tcp.__offload.__rx.lro_pktlen
 #define lro_npkts	proto_mtag.__pr_u.tcp.tm_tcp.__offload.__rx.lro_npkts
 #define lro_elapsed	proto_mtag.__pr_u.tcp.tm_tcp.__offload.__rx.lro_timediff
@@ -238,17 +253,13 @@ struct tcp_pktinfo {
  */
 struct mptcp_pktinfo {
 	u_int64_t	mtpi_dsn;	/* MPTCP Data Sequence Number */
-	union {
-		u_int64_t	mtpi_dan;	/* MPTCP Data Ack Number */
-		struct {
-			u_int32_t mtpi_rel_seq;	/* Relative Seq Number */
-			u_int32_t mtpi_length;	/* Length of mapping */
-		} mtpi_subf;
-	};
+	u_int32_t	mtpi_rel_seq;	/* Relative Seq Number */
+	u_int16_t	mtpi_length;	/* Length of mapping */
+	u_int16_t	mtpi_csum;
 #define	mp_dsn		proto_mtag.__pr_u.tcp.tm_mptcp.mtpi_dsn
-#define	mp_rseq		proto_mtag.__pr_u.tcp.tm_mptcp.mtpi_subf.mtpi_rel_seq
-#define	mp_rlen		proto_mtag.__pr_u.tcp.tm_mptcp.mtpi_subf.mtpi_length
-#define	mp_dack		proto_mtag.__pr_u.tcp.tm_mptcp.mtpi_subf.mtpi_dan
+#define	mp_rseq		proto_mtag.__pr_u.tcp.tm_mptcp.mtpi_rel_seq
+#define	mp_rlen		proto_mtag.__pr_u.tcp.tm_mptcp.mtpi_length
+#define	mp_csum		proto_mtag.__pr_u.tcp.tm_mptcp.mtpi_csum
 };
 
 /*
@@ -264,6 +275,17 @@ struct tcp_mtag {
 	};
 };
 
+struct driver_mtag_ {
+	uintptr_t		_drv_tx_compl_arg;
+	uintptr_t		_drv_tx_compl_data;
+	kern_return_t		_drv_tx_status;
+	uint16_t		_drv_flowid;
+#define drv_tx_compl_arg	builtin_mtag._drv_mtag._drv_tx_compl_arg
+#define drv_tx_compl_data	builtin_mtag._drv_mtag._drv_tx_compl_data
+#define drv_tx_status		builtin_mtag._drv_mtag._drv_tx_status
+#define drv_flowid		builtin_mtag._drv_mtag._drv_flowid
+};
+
 /*
  * Protocol specific mbuf tag (at most one protocol metadata per mbuf).
  *
@@ -272,7 +294,7 @@ struct tcp_mtag {
  * that the former is used on the virtual ipsec interface that does
  * not advertise the TSO capability.)
  */
-struct proto_mtag {
+struct proto_mtag_ {
 	union {
 		struct tcp_mtag	tcp;		/* TCP specific */
 	} __pr_u;
@@ -281,17 +303,30 @@ struct proto_mtag {
 /*
  * NECP specific mbuf tag.
  */
-struct necp_mtag {
+struct necp_mtag_ {
 	u_int32_t	necp_policy_id;
 	u_int32_t	necp_last_interface_index;
 	u_int32_t	necp_route_rule_id;
+	u_int32_t	necp_app_id;
+};
+
+union builtin_mtag {
+	struct {
+		struct proto_mtag_ _proto_mtag;	/* built-in protocol-specific tag */
+		struct pf_mtag	_pf_mtag;	/* built-in PF tag */
+		struct necp_mtag_ _necp_mtag; /* built-in NECP tag */
+	} _net_mtag;
+	struct driver_mtag_ _drv_mtag;
+#define necp_mtag builtin_mtag._net_mtag._necp_mtag
+#define proto_mtag builtin_mtag._net_mtag._proto_mtag
+#define driver_mtag builtin_mtag._drv_mtag
 };
 
 /*
  * Record/packet header in first mbuf of chain; valid only if M_PKTHDR set.
  */
-struct	pkthdr {
-	struct	ifnet *rcvif;		/* rcv interface */
+struct pkthdr {
+	struct ifnet *rcvif;		/* rcv interface */
 	/* variables for ip and tcp reassembly */
 	void	*pkt_hdr;		/* pointer to packet header */
 	int32_t	len;			/* total packet length */
@@ -348,6 +383,9 @@ struct	pkthdr {
 	u_int32_t pkt_flowid;		/* flow ID */
 	u_int32_t pkt_flags;		/* PKTF flags (see below) */
 	u_int32_t pkt_svc;		/* MBUF_SVC value */
+
+	u_int32_t pkt_compl_context;		/* Packet completion context */
+
 	union {
 		struct {
 			u_int16_t src;		/* ifindex of src addr i/f */
@@ -360,25 +398,25 @@ struct	pkthdr {
 #define	dst_ifindex	_pkt_iaif.dst
 #define	dst_iff		_pkt_iaif.dst_flags
 		u_int64_t pkt_ifainfo;	/* data field used by ifainfo */
-		u_int32_t pkt_unsent_databytes; /* unsent data */
+		struct {
+			u_int32_t if_data; /* bytes in interface queue */
+			u_int32_t sndbuf_data; /* bytes in socket buffer */
+		} _pkt_bsr;	/* Buffer status report used by cellular interface */
+#define	bufstatus_if	_pkt_bsr.if_data
+#define	bufstatus_sndbuf	_pkt_bsr.sndbuf_data
 	};
-#if MEASURE_BW
-	u_int64_t pkt_bwseq;		/* sequence # */
-#endif /* MEASURE_BW */
-	u_int64_t pkt_enqueue_ts;	/* enqueue time */
+	u_int64_t pkt_timestamp;	/* enqueue time */
 
 	/*
 	 * Tags (external and built-in)
 	 */
 	SLIST_HEAD(packet_tags, m_tag) tags; /* list of external tags */
-	struct proto_mtag proto_mtag;	/* built-in protocol-specific tag */
-	struct pf_mtag	pf_mtag;	/* built-in PF tag */
-	struct necp_mtag necp_mtag; /* built-in NECP tag */
+	union builtin_mtag builtin_mtag;
 	/*
 	 * Module private scratch space (32-bit aligned), currently 16-bytes
-	 * large.  Anything stored here is not guaranteed to survive across
-	 * modules.  This should be the penultimate structure right before
-	 * the red zone.  Add new fields above this.
+	 * large. Anything stored here is not guaranteed to survive across
+	 * modules.  The AQM layer (outbound) uses all 16-bytes for both
+	 * packet scheduling and flow advisory information.
 	 */
 	struct {
 		union {
@@ -394,7 +432,13 @@ struct	pkthdr {
 			u_int64_t	__mpriv64[2];
 		} __mpriv_u;
 	} pkt_mpriv __attribute__((aligned(4)));
+#define	pkt_mpriv_hash	pkt_mpriv.__mpriv_u.__mpriv32[0].__mpriv32_u.__val32
+#define	pkt_mpriv_flags	pkt_mpriv.__mpriv_u.__mpriv32[1].__mpriv32_u.__val32
+#define	pkt_mpriv_srcid	pkt_mpriv.__mpriv_u.__mpriv32[2].__mpriv32_u.__val32
+#define	pkt_mpriv_fidx	pkt_mpriv.__mpriv_u.__mpriv32[3].__mpriv32_u.__val32
+
 	u_int32_t redzone;		/* red zone */
+	u_int32_t pkt_compl_callbacks;	/* Packet completion callbacks */
 };
 
 /*
@@ -407,6 +451,7 @@ struct	pkthdr {
 #define	FLOWSRC_INPCB		1	/* flow ID generated by INPCB */
 #define	FLOWSRC_IFNET		2	/* flow ID generated by interface */
 #define	FLOWSRC_PF		3	/* flow ID generated by PF */
+#define	FLOWSRC_CHANNEL		4	/* flow ID generated by channel */
 
 /*
  * Packet flags.  Unlike m_flags, all packet flags are copied along when
@@ -451,6 +496,14 @@ struct	pkthdr {
 #define	PKTF_SO_REALTIME	0x80000	/* data is realtime traffic */
 #define	PKTF_VALID_UNSENT_DATA	0x100000 /* unsent data is valid */
 #define	PKTF_TCP_REXMT		0x200000 /* packet is TCP retransmission */
+#define	PKTF_REASSEMBLED	0x400000 /* Packet was reassembled */
+#define	PKTF_TX_COMPL_TS_REQ	0x800000 /* tx completion timestamp requested */
+#define	PKTF_TS_VALID		0x1000000 /* pkt timestamp is valid */
+#define	PKTF_DRIVER_MTAG	0x2000000 /* driver mbuf tags fields inited */
+#define	PKTF_NEW_FLOW		0x4000000 /* Data from a new flow */
+#define	PKTF_START_SEQ		0x8000000 /* valid start sequence */
+#define	PKTF_LAST_PKT		0x10000000 /* last packet in the flow */
+#define	PKTF_MPTCP_REINJ	0x20000000 /* Packet has been reinjected for MPTCP */
 
 /* flags related to flow control/advisory and identification */
 #define	PKTF_FLOW_MASK	\
@@ -459,18 +512,20 @@ struct	pkthdr {
 /*
  * Description of external storage mapped into mbuf, valid only if M_EXT set.
  */
+typedef void (*m_ext_free_func_t)(caddr_t, u_int, caddr_t);
 struct m_ext {
 	caddr_t	ext_buf;		/* start of buffer */
-	void	(*ext_free)		/* free routine if not the usual */
-		    (caddr_t, u_int, caddr_t);
+	m_ext_free_func_t ext_free;	/* free routine if not the usual */
 	u_int	ext_size;		/* size of buffer, for ext_free */
 	caddr_t	ext_arg;		/* additional ext_free argument */
-	struct	ext_refsq {		/* references held */
-		struct ext_refsq *forward, *backward;
-	} ext_refs;
 	struct ext_ref {
-		u_int32_t refcnt;
-		u_int32_t flags;
+		struct mbuf *paired;
+		u_int16_t minref;
+		u_int16_t refcnt;
+		u_int16_t prefcnt;
+		u_int16_t flags;
+		u_int32_t priv;
+		uintptr_t ext_token;
 	} *ext_refflags;
 };
 
@@ -481,12 +536,12 @@ typedef struct m_ext _m_ext_t;
  * The mbuf object
  */
 struct mbuf {
-	struct	m_hdr m_hdr;
+	struct m_hdr m_hdr;
 	union {
 		struct {
-			struct	pkthdr MH_pkthdr;	/* M_PKTHDR set */
+			struct pkthdr MH_pkthdr;	/* M_PKTHDR set */
 			union {
-				struct	m_ext MH_ext;	/* M_EXT set */
+				struct m_ext MH_ext;	/* M_EXT set */
 				char	MH_databuf[_MHLEN];
 			} MH_dat;
 		} MH;
@@ -506,7 +561,7 @@ struct mbuf {
 #define	m_pktdat	M_dat.MH.MH_dat.MH_databuf
 #define	m_dat		M_dat.M_databuf
 #define	m_pktlen(_m)	((_m)->m_pkthdr.len)
-#define	m_pftag(_m)	(&(_m)->m_pkthdr.pf_mtag)
+#define	m_pftag(_m)	(&(_m)->m_pkthdr.builtin_mtag._net_mtag._pf_mtag)
 
 /* mbuf flags (private) */
 #define	M_EXT		0x0001	/* has associated external storage */
@@ -555,6 +610,7 @@ struct mbuf {
 #define	CSUM_DATA_VALID		0x0400		/* csum_data field is valid */
 #define	CSUM_PSEUDO_HDR		0x0800		/* csum_data has pseudo hdr */
 #define	CSUM_PARTIAL		0x1000		/* simple Sum16 computation */
+#define	CSUM_ZERO_INVERT	0x2000		/* invert 0 to -0 (0xffff) */
 
 #define	CSUM_DELAY_DATA		(CSUM_TCP | CSUM_UDP)
 #define	CSUM_DELAY_IP		(CSUM_IP)	/* IPv4 only: no IPv6 IP cksum */
@@ -563,7 +619,7 @@ struct mbuf {
 
 #define	CSUM_TX_FLAGS							\
 	(CSUM_DELAY_IP | CSUM_DELAY_DATA | CSUM_DELAY_IPV6_DATA |	\
-	CSUM_DATA_VALID | CSUM_PARTIAL)
+	CSUM_DATA_VALID | CSUM_PARTIAL | CSUM_ZERO_INVERT)
 
 #define	CSUM_RX_FLAGS							\
 	(CSUM_IP_CHECKED | CSUM_IP_VALID | CSUM_PSEUDO_HDR |		\
@@ -897,7 +953,16 @@ struct name {							\
 #define	MBUFQ_EMPTY(q)		((q)->mq_first == NULL)
 #define MBUFQ_FIRST(q)		((q)->mq_first)
 #define MBUFQ_NEXT(m)		((m)->m_nextpkt)
-#define MBUFQ_LAST(q)		(*(q)->mq_last)
+/*
+ * mq_last is initialized to point to mq_first, so check if they're
+ * equal and return NULL when the list is empty.  Otherwise, we need
+ * to subtract the offset of MBUQ_NEXT (i.e. m_nextpkt field) to get
+ * to the base mbuf address to return to caller.
+ */
+#define	MBUFQ_LAST(head)					\
+	(((head)->mq_last == &MBUFQ_FIRST(head)) ? NULL :	\
+	((struct mbuf *)(void *)((char *)(head)->mq_last -	\
+	    (size_t)(&MBUFQ_NEXT((struct mbuf *)0)))))
 
 #define	max_linkhdr	P2ROUNDUP(_max_linkhdr, sizeof (u_int32_t))
 #define	max_protohdr	P2ROUNDUP(_max_protohdr, sizeof (u_int32_t))
@@ -1258,7 +1323,7 @@ extern int _max_protohdr;	/* largest protocol header */
 __private_extern__ unsigned int mbuf_default_ncl(int, u_int64_t);
 __private_extern__ void mbinit(void);
 __private_extern__ struct mbuf *m_clattach(struct mbuf *, int, caddr_t,
-    void (*)(caddr_t, u_int, caddr_t), u_int, caddr_t, int);
+    void (*)(caddr_t, u_int, caddr_t), u_int, caddr_t, int, int);
 __private_extern__ caddr_t m_bigalloc(int);
 __private_extern__ void m_bigfree(caddr_t, u_int, caddr_t);
 __private_extern__ struct mbuf *m_mbigget(struct mbuf *, int);
@@ -1316,6 +1381,11 @@ __private_extern__ struct mbuf *m_getpackets_internal(unsigned int *, int,
     int, int, size_t);
 __private_extern__ struct mbuf *m_allocpacket_internal(unsigned int *, size_t,
     unsigned int *, int, int, size_t);
+
+__private_extern__ int m_ext_set_prop(struct mbuf *, uint32_t, uint32_t);
+__private_extern__ uint32_t m_ext_get_prop(struct mbuf *);
+__private_extern__ int m_ext_paired_is_active(struct mbuf *);
+__private_extern__ void m_ext_paired_activate(struct mbuf *);
 
 __private_extern__ void m_drain(void);
 
@@ -1404,8 +1474,16 @@ __private_extern__ mbuf_traffic_class_t m_get_traffic_class(struct mbuf *);
 } while (0)
 
 __private_extern__ u_int16_t m_adj_sum16(struct mbuf *, u_int32_t,
-    u_int32_t, u_int32_t);
+    u_int32_t, u_int32_t, u_int32_t);
 __private_extern__ u_int16_t m_sum16(struct mbuf *, u_int32_t, u_int32_t);
+
+__private_extern__ void m_set_ext(struct mbuf *, struct ext_ref *,
+    m_ext_free_func_t, caddr_t);
+__private_extern__ struct ext_ref *m_get_rfa(struct mbuf *);
+__private_extern__ m_ext_free_func_t m_get_ext_free(struct mbuf *);
+__private_extern__ caddr_t m_get_ext_arg(struct mbuf *);
+
+extern void m_do_tx_compl_callback(struct mbuf *, struct ifnet *);
 
 __END_DECLS
 #endif /* XNU_KERNEL_PRIVATE */

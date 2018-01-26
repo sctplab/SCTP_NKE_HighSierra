@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006-2014 Apple Inc. All rights reserved.
+ * Copyright (c) 2006-2017 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -37,6 +37,7 @@ extern "C" {
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <mach/boolean.h>
+#include <mach/branch_predicates.h>
 #include <kern/locks.h>
 #include <libkern/OSAtomic.h>
 
@@ -49,10 +50,11 @@ extern "C" {
 #endif
 
 /*
- * Unlike VERIFY(), ASSERT() is evaluated only in DEBUG build.
+ * Unlike VERIFY(), ASSERT() is evaluated only in DEBUG/DEVELOPMENT build.
  */
-#define	VERIFY(EX)	((void)((EX) || assfail(#EX, __FILE__, __LINE__)))
-#if DEBUG
+#define	VERIFY(EX)	\
+	((void)(__probable((EX)) || assfail(#EX, __FILE__, __LINE__)))
+#if (DEBUG || DEVELOPMENT)
 #define	ASSERT(EX)	VERIFY(EX)
 #else
 #define	ASSERT(EX)	((void)0)
@@ -61,8 +63,7 @@ extern "C" {
 /*
  * Compile time assert; this should be on its own someday.
  */
-#define	_CASSERT(x)	\
-	switch (0) { case 0: case (x): ; }
+#define	_CASSERT(x)	_Static_assert(x, "compile-time assertion failed")
 
 /*
  * Atomic macros; these should be on their own someday.
@@ -85,8 +86,19 @@ extern "C" {
 #define	atomic_add_64(a, n)						\
 	((void) atomic_add_64_ov(a, n))
 
+#define	atomic_test_set_32(a, o, n)					\
+	OSCompareAndSwap(o, n, (volatile UInt32 *)a)
+
+#define	atomic_set_32(a, n) do {					\
+	while (!atomic_test_set_32(a, *a, n))				\
+		;							\
+} while (0)
+
+#define	atomic_test_set_64(a, o, n)					\
+	OSCompareAndSwap64(o, n, (volatile UInt64 *)a)
+
 #define	atomic_set_64(a, n) do {					\
-	while (!OSCompareAndSwap64(*a, n, (volatile UInt64 *)a))	\
+	while (!atomic_test_set_64(a, *a, n))				\
 		;							\
 } while (0)
 
@@ -99,6 +111,14 @@ extern "C" {
 	(n) = atomic_add_64_ov(a, 0);					\
 } while (0)
 #endif /* __LP64__ */
+
+#define	atomic_test_set_ptr(a, o, n)					\
+	OSCompareAndSwapPtr(o, n, (void * volatile *)a)
+
+#define	atomic_set_ptr(a, n) do {					\
+	while (!atomic_test_set_ptr(a, *a, n))				\
+		;							\
+} while (0)
 
 #define	atomic_or_8_ov(a, n)						\
 	((u_int8_t) OSBitOrAtomic8(n, (volatile UInt8 *)a))
@@ -127,6 +147,9 @@ extern "C" {
 #define	atomic_bitset_32(a, n)						\
 	atomic_or_32(a, n)
 
+#define	atomic_bitset_32_ov(a, n)					\
+	atomic_or_32_ov(a, n)
+
 #define	atomic_and_8_ov(a, n)						\
 	((u_int8_t) OSBitAndAtomic8(n, (volatile UInt8 *)a))
 
@@ -154,11 +177,13 @@ extern "C" {
 #define	atomic_bitclear_32(a, n)					\
 	atomic_and_32(a, ~(n))
 
+#define	membar_sync	OSMemoryBarrier
+
 /*
  * Use CPU_CACHE_LINE_SIZE instead of MAX_CPU_CACHE_LINE_SIZE, unless
  * wasting space is of no concern.
  */
-#define	MAX_CPU_CACHE_LINE_SIZE	64
+#define	MAX_CPU_CACHE_LINE_SIZE	128
 #define	CPU_CACHE_LINE_SIZE	mcache_cache_line_size()
 
 #ifndef IS_P2ALIGNED
@@ -175,6 +200,11 @@ extern "C" {
 #define	P2ROUNDDOWN(x, align) \
 	(((uintptr_t)(x)) & ~((uintptr_t)(align) - 1))
 #endif /* P2ROUNDDOWN */
+
+#ifndef P2ALIGN
+#define P2ALIGN(x, align) \
+	((uintptr_t)(x) & -((uintptr_t)(align)))
+#endif /* P2ALIGN */
 
 #define	MCACHE_FREE_PATTERN		0xdeadbeefdeadbeefULL
 #define	MCACHE_UNINITIALIZED_PATTERN	0xbaddcafebaddcafeULL
@@ -244,7 +274,7 @@ typedef struct mcache_cpu {
 	int		cc_objs;	/* number of objects in filled bkt */
 	int		cc_pobjs;	/* number of objects in previous bkt */
 	int		cc_bktsize;	/* number of elements in a full bkt */
-} __attribute__((aligned(MAX_CPU_CACHE_LINE_SIZE), packed)) mcache_cpu_t;
+} __attribute__((aligned(MAX_CPU_CACHE_LINE_SIZE))) mcache_cpu_t;
 
 typedef unsigned int (*mcache_allocfn_t)(void *, mcache_obj_t ***,
     unsigned int, int);
@@ -303,7 +333,8 @@ typedef struct mcache {
 	/*
 	 * Per-CPU layer, aligned at cache line boundary
 	 */
-	mcache_cpu_t	mc_cpu[1];
+	mcache_cpu_t	mc_cpu[1]
+	    __attribute__((aligned(MAX_CPU_CACHE_LINE_SIZE)));
 } mcache_t;
 
 #define	MCACHE_ALIGN	8	/* default guaranteed alignment */
@@ -359,6 +390,7 @@ __private_extern__ unsigned int mcache_alloc_ext(mcache_t *, mcache_obj_t **,
     unsigned int, int);
 __private_extern__ void mcache_free_ext(mcache_t *, mcache_obj_t *);
 __private_extern__ void mcache_reap(void);
+__private_extern__ void mcache_reap_now(mcache_t *, boolean_t);
 __private_extern__ boolean_t mcache_purge_cache(mcache_t *, boolean_t);
 __private_extern__ void mcache_waiter_inc(mcache_t *);
 __private_extern__ void mcache_waiter_dec(mcache_t *);
@@ -379,6 +411,7 @@ __private_extern__ void mcache_audit_panic(mcache_audit_t *, void *, size_t,
     int64_t, int64_t);
 
 extern int32_t total_sbmb_cnt;
+extern int32_t total_sbmb_cnt_floor;
 extern int32_t total_sbmb_cnt_peak;
 extern int64_t sbmb_limreached;
 extern mcache_t *mcache_audit_cache;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2015 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2017 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -148,10 +148,10 @@ struct	ip6_moptions {
 };
 
 #define	IM6O_LOCK_ASSERT_HELD(_im6o)					\
-	lck_mtx_assert(&(_im6o)->im6o_lock, LCK_MTX_ASSERT_OWNED)
+	LCK_MTX_ASSERT(&(_im6o)->im6o_lock, LCK_MTX_ASSERT_OWNED)
 
 #define	IM6O_LOCK_ASSERT_NOTHELD(_im6o)					\
-	lck_mtx_assert(&(_im6o)->im6o_lock, LCK_MTX_ASSERT_NOTOWNED)
+	LCK_MTX_ASSERT(&(_im6o)->im6o_lock, LCK_MTX_ASSERT_NOTOWNED)
 
 #define	IM6O_LOCK(_im6o)						\
 	lck_mtx_lock(&(_im6o)->im6o_lock)
@@ -272,6 +272,7 @@ struct	ip6stat {
 	u_quad_t ip6s_localout;		/* total ip packets generated here */
 	u_quad_t ip6s_odropped;		/* lost packets due to nobufs, etc. */
 	u_quad_t ip6s_reassembled;	/* total packets reassembled ok */
+	u_quad_t ip6s_atmfrag_rcvd;	/* atomic fragments received */
 	u_quad_t ip6s_fragmented;	/* datagrams successfully fragmented */
 	u_quad_t ip6s_ofragments;	/* output fragments created */
 	u_quad_t ip6s_cantfrag;		/* don't fragment flag was set, etc. */
@@ -332,11 +333,17 @@ struct	ip6stat {
 
 	/* duplicate address detection collisions */
 	u_quad_t ip6s_dad_collide;
+
+	/* DAD NS looped back */
+	u_quad_t ip6s_dad_loopcount;
+
+	/* NECP policy related drop */
+	u_quad_t ip6s_necp_policy_drop;
 };
 
 enum ip6s_sources_rule_index {
 	IP6S_SRCRULE_0, IP6S_SRCRULE_1, IP6S_SRCRULE_2, IP6S_SRCRULE_3, IP6S_SRCRULE_4,
-	IP6S_SRCRULE_5, IP6S_SRCRULE_5_5, IP6S_SRCRULE_6, IP6S_SRCRULE_7,
+	IP6S_SRCRULE_5, IP6S_SRCRULE_6, IP6S_SRCRULE_7,
 	IP6S_SRCRULE_7x, IP6S_SRCRULE_8
 };
 
@@ -412,8 +419,12 @@ struct ip6_out_args {
 #define	IP6OAF_NO_CELLULAR	0x00000010	/* skip IFT_CELLULAR */
 #define	IP6OAF_NO_EXPENSIVE	0x00000020	/* skip IFEF_EXPENSIVE */
 #define	IP6OAF_AWDL_UNRESTRICTED 0x00000040	/* privileged AWDL */
+#define	IP6OAF_QOSMARKING_ALLOWED 0x00000080	/* policy allows Fastlane DSCP marking */
+#define IP6OAF_INTCOPROC_ALLOWED 0x00000100	/* access to internal coproc interfaces */
 	u_int32_t	ip6oa_retflags;	/* IP6OARF return flags (see below) */
 #define	IP6OARF_IFDENIED	0x00000001	/* denied access to interface */
+	int		ip6oa_sotc;		/* traffic class for Fastlane DSCP mapping */
+	int		ip6oa_netsvctype;
 };
 
 extern struct ip6stat ip6stat;	/* statistics */
@@ -461,10 +472,9 @@ extern int ip6_use_defzone;
 extern struct pr_usrreqs rip6_usrreqs;
 extern struct pr_usrreqs icmp6_dgram_usrreqs;
 
-extern int ip6_doscopedroute;
-
 struct sockopt;
 struct inpcb;
+struct ip6_hdr;
 struct in6_ifaddr;
 struct ip6protosw;
 struct domain;
@@ -518,6 +528,8 @@ extern void ip6_clearpktopts(struct ip6_pktopts *, int);
 extern struct ip6_pktopts *ip6_copypktopts(struct ip6_pktopts *, int);
 extern int ip6_optlen(struct inpcb *);
 extern void ip6_drain(void);
+extern int ip6_do_fragmentation(struct mbuf **, uint32_t, struct ifnet *, uint32_t,
+								struct ip6_hdr *, struct ip6_exthdrs *, uint32_t, int);
 
 extern int route6_input(struct mbuf **, int *, int);
 
@@ -526,12 +538,20 @@ extern int frag6_input(struct mbuf **, int *, int);
 extern void frag6_drain(void);
 
 extern int rip6_input(struct mbuf **, int *, int);
-extern void rip6_ctlinput(int, struct sockaddr *, void *);
+extern void rip6_ctlinput(int, struct sockaddr *, void *, struct ifnet *);
 extern int rip6_ctloutput(struct socket *so, struct sockopt *sopt);
 extern int rip6_output(struct mbuf *, struct socket *, struct sockaddr_in6 *,
     struct mbuf *, int);
 
 extern int dest6_input(struct mbuf **, int *, int);
+/*
+ * IPv6 source address selection hints
+ */
+#define IPV6_SRCSEL_HINT_PREFER_TMPADDR         0x00000001
+
+extern struct in6_addr * in6_selectsrc_core(struct sockaddr_in6 *,
+    uint32_t, struct ifnet *, int,
+    struct in6_addr *, struct ifnet **, int *, struct ifaddr **);
 extern struct in6_addr *in6_selectsrc(struct sockaddr_in6 *,
     struct ip6_pktopts *, struct inpcb *, struct route_in6 *,
     struct ifnet **, struct in6_addr *, unsigned int, int *);

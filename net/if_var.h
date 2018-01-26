@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2015 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2017 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -74,6 +74,9 @@
 #endif /* KERNEL_PRIVATE */
 #ifdef PRIVATE
 #include <net/route.h>
+#endif
+#ifdef BSD_KERN_PRIVATE
+#include <sys/eventhandler.h>
 #endif
 
 #ifdef KERNEL
@@ -328,13 +331,19 @@ struct if_rxpoll_stats {
 };
 
 struct if_tcp_ecn_perf_stat {
+	u_int64_t total_txpkts;
+	u_int64_t total_rxmitpkts;
+	u_int64_t total_rxpkts;
+	u_int64_t total_oopkts;
+	u_int64_t total_reorderpkts;
 	u_int64_t rtt_avg;
 	u_int64_t rtt_var;
-	u_int64_t oo_percent;
 	u_int64_t sack_episodes;
+	u_int64_t rxmit_drop;
+	u_int64_t rst_drop;
+	u_int64_t oo_percent;
 	u_int64_t reorder_percent;
 	u_int64_t rxmit_percent;
-	u_int64_t rxmit_drop;
 };
 
 struct if_tcp_ecn_stat {
@@ -356,8 +365,68 @@ struct if_tcp_ecn_stat {
 	u_int64_t ecn_fallback_synloss;
 	u_int64_t ecn_fallback_reorder;
 	u_int64_t ecn_fallback_ce;
+	u_int64_t ecn_off_conn;
+	u_int64_t ecn_total_conn;
+	u_int64_t ecn_fallback_droprst;
+	u_int64_t ecn_fallback_droprxmt;
+	u_int64_t ecn_fallback_synrst;
 	struct if_tcp_ecn_perf_stat ecn_on;
 	struct if_tcp_ecn_perf_stat ecn_off;
+};
+
+struct if_lim_perf_stat {
+	u_int64_t lim_dl_max_bandwidth;	/* bits per second */
+	u_int64_t lim_ul_max_bandwidth;	/* bits per second */
+	u_int64_t lim_total_txpkts;	/* Total transmit packets, count */
+	u_int64_t lim_total_rxpkts;	/* Total receive packets, count */
+	u_int64_t lim_total_retxpkts;	/* Total retransmit packets */
+	u_int64_t lim_packet_loss_percent; /* Packet loss rate */
+	u_int64_t lim_total_oopkts;	/* Total out-of-order packets */
+	u_int64_t lim_packet_ooo_percent; /* Out-of-order packet rate */
+	u_int64_t lim_rtt_variance;	/* RTT variance, milliseconds */
+	u_int64_t lim_rtt_average;	/* RTT average, milliseconds */
+	u_int64_t lim_rtt_min;		/* RTT minimum, milliseconds */
+	u_int64_t lim_conn_timeouts;	/* connection timeouts */
+	u_int64_t lim_conn_attempts;	/* connection attempts */
+	u_int64_t lim_conn_timeout_percent; /* Rate of connection timeouts */
+	u_int64_t lim_bk_txpkts;	/* Transmit packets with BK service class, that use delay based algorithms */
+	u_int64_t lim_dl_detected:1,	/* Low internet */
+		  lim_ul_detected:1;
+};
+
+#define IF_VAR_H_HAS_IFNET_STATS_PER_FLOW 1
+struct ifnet_stats_per_flow {
+	u_int64_t bk_txpackets;
+	u_int64_t txpackets;
+	u_int64_t rxpackets;
+	u_int32_t txretransmitbytes;
+	u_int32_t rxoutoforderbytes;
+	u_int32_t rxmitpkts;
+	u_int32_t rcvoopack;
+	u_int32_t pawsdrop;
+	u_int32_t sack_recovery_episodes;
+	u_int32_t reordered_pkts;
+	u_int32_t dsack_sent;
+	u_int32_t dsack_recvd;
+	u_int32_t srtt;
+	u_int32_t rttupdated;
+	u_int32_t rttvar;
+	u_int32_t rttmin;
+	u_int32_t bw_sndbw_max;
+	u_int32_t bw_rcvbw_max;
+	u_int32_t ecn_recv_ece;
+	u_int32_t ecn_recv_ce;
+	u_int16_t ecn_flags;
+	u_int16_t ipv4:1,
+	    local:1,
+	    connreset:1,
+	    conntimeout:1,
+	    rxmit_drop:1,
+	    ecn_fallback_synloss:1,
+	    ecn_fallback_droprst:1,
+	    ecn_fallback_droprxmt:1,
+	    ecn_fallback_ce:1,
+	    ecn_fallback_reorder:1;
 };
 
 /*
@@ -399,6 +468,8 @@ struct if_cellular_status_v1 {
 #define IF_CELL_DL_MAX_BANDWIDTH_VALID		0x1000
 #define IF_CELL_CONFIG_INACTIVITY_TIME_VALID	0x2000
 #define IF_CELL_CONFIG_BACKOFF_TIME_VALID	0x4000
+#define	IF_CELL_UL_MSS_RECOMMENDED_VALID	0x8000
+
 	u_int32_t link_quality_metric;
 	u_int32_t ul_effective_bandwidth; /* Measured uplink bandwidth based on current activity (bps) */
 	u_int32_t ul_max_bandwidth; /* Maximum supported uplink bandwidth (bps) */
@@ -418,11 +489,16 @@ struct if_cellular_status_v1 {
 	u_int32_t dl_max_bandwidth; /* Maximum supported downlink bandwidth (bps) */
 	u_int32_t config_inactivity_time; /* ms */
 	u_int32_t config_backoff_time; /* new connections backoff time in ms */
-	u_int64_t reserved_1;
-	u_int64_t reserved_2;
+#define	IF_CELL_UL_MSS_RECOMMENDED_NONE	0x0 /* Use default */
+#define	IF_CELL_UL_MSS_RECOMMENDED_MEDIUM 0x1 /* 1200 byte MSS */
+#define	IF_CELL_UL_MSS_RECOMMENDED_LOW	0x2 /* 512 byte MSS */
+	u_int16_t mss_recommended;
+	u_int16_t reserved_1;
+	u_int32_t reserved_2;
 	u_int64_t reserved_3;
 	u_int64_t reserved_4;
 	u_int64_t reserved_5;
+	u_int64_t reserved_6;
 } __attribute__((packed));
 
 struct if_cellular_status {
@@ -542,7 +618,7 @@ struct if_interface_state {
 
 	/*
 	 * Indicate if the underlying link is currently
-	 * available 
+	 * available
 	 */
 	u_int8_t interface_availability;
 #define	IF_INTERFACE_STATE_INTERFACE_AVAILABLE		0x0
@@ -555,7 +631,7 @@ struct chain_len_stats {
 	uint64_t	cls_three;
 	uint64_t	cls_four;
 	uint64_t	cls_five_or_more;
-};
+} __attribute__((__aligned__(sizeof (uint64_t))));
 
 #endif /* PRIVATE */
 
@@ -593,7 +669,6 @@ struct if_data_internal {
 	u_int32_t	ifi_mtu;	/* maximum transmission unit */
 	u_int32_t	ifi_metric;	/* routing metric (external only) */
 	u_int32_t	ifi_baudrate;	/* linespeed */
-	u_int32_t	ifi_preamblelen;/* length of the packet preamble */
 	/* volatile statistics */
 	u_int64_t	ifi_ipackets;	/* packets received on interface */
 	u_int64_t	ifi_ierrors;	/* input errors on interface */
@@ -617,25 +692,6 @@ struct if_data_internal {
 	u_int32_t	ifi_tso_v4_mtu;	/* TCP Segment Offload IPv4 maximum segment size */
 	u_int32_t	ifi_tso_v6_mtu;	/* TCP Segment Offload IPv6 maximum segment size */
 };
-
-#if MEASURE_BW
-/*
- * Fields per interface to measure perceived bandwidth.
- */
-struct if_measured_bw {
-	u_int64_t	bw;		/* measured bandwidth in bytes per ms */
-	u_int64_t	bytes;		/* XXX not needed */
-	u_int64_t	ts;		/* XXX not needed */
-	u_int64_t	cur_seq __attribute((aligned(8)));	/* current sequence for marking a packet */
-	u_int64_t	start_ts;	/* time at which a measurement started */
-	u_int64_t	start_seq;	/* sequence at which a measurement should start */
-	u_int64_t	last_seq;	/* last recorded seq */
-	u_int64_t	last_ts;	/* last recorded ts */
-	u_int32_t	flags __attribute__((aligned(4)));		/* flags */
-#define IF_MEASURED_BW_INPROGRESS 0x1
-#define IF_MEASURED_BW_CALCULATION 0x2
-};
-#endif /* MEASURE_BW */
 #endif /* BSD_KERNEL_PRIVATE */
 
 #ifdef PRIVATE
@@ -645,7 +701,6 @@ struct if_measured_bw {
 #define if_physical	if_data.ifi_physical
 #define	if_addrlen	if_data.ifi_addrlen
 #define	if_hdrlen	if_data.ifi_hdrlen
-#define	if_preamblelen	if_data.ifi_preamblelen
 #define	if_metric	if_data.ifi_metric
 #define	if_baudrate	if_data.ifi_baudrate
 #define	if_hwassist	if_data.ifi_hwassist
@@ -695,7 +750,6 @@ struct pfi_kif;
 /* we use TAILQs so that the order of instantiation is preserved in the list */
 TAILQ_HEAD(ifnethead, ifnet);
 TAILQ_HEAD(ifaddrhead, ifaddr);
-TAILQ_HEAD(ifprefixhead, ifprefix);
 LIST_HEAD(ifmultihead, ifmultiaddr);
 TAILQ_HEAD(tailq_head, tqdummy);
 TAILQ_HEAD(ifnet_filter_head, ifnet_filter);
@@ -704,7 +758,7 @@ TAILQ_HEAD(ddesc_head_name, dlil_demux_desc);
 
 #ifdef PRIVATE
 /*
- * All of the following IF_HWASSIST_* flags are defined in kpi_inteface.h as
+ * All of the following IF_HWASSIST_* flags are defined in kpi_interface.h as
  * IFNET_* flags. These are redefined here as constants to avoid failures to
  * build user level programs that can not include kpi_interface.h. It is
  * important to keep this in sync with the definitions in kpi_interface.h.
@@ -721,6 +775,7 @@ TAILQ_HEAD(ddesc_head_name, dlil_demux_desc);
 #define IF_HWASSIST_CSUM_UDPIPV6	0x0040	/* will csum UDPv6, IFNET_CSUM_UDP */
 #define IF_HWASSIST_CSUM_FRAGMENT_IPV6	0x0080	/* will do IPv6 fragmentation, IFNET_IPV6_FRAGMENT */
 #define IF_HWASSIST_CSUM_PARTIAL	0x1000	/* simple Sum16 computation, IFNET_CSUM_PARTIAL */
+#define	IF_HWASSIST_CSUM_ZERO_INVERT	0x2000	/* capable of inverting csum of 0 to -0 (0xffff) */
 #define IF_HWASSIST_CSUM_MASK		0xffff
 #define IF_HWASSIST_CSUM_FLAGS(hwassist)	((hwassist) & IF_HWASSIST_CSUM_MASK)
 
@@ -751,6 +806,12 @@ TAILQ_HEAD(ddesc_head_name, dlil_demux_desc);
 
 RB_HEAD(ll_reach_tree, if_llreach);	/* define struct ll_reach_tree */
 
+
+typedef errno_t (*dlil_input_func)(ifnet_t ifp, mbuf_t m_head,
+    mbuf_t m_tail, const struct ifnet_stat_increment_param *s,
+    boolean_t poll, struct thread *tp);
+typedef errno_t (*dlil_output_func)(ifnet_t interface, mbuf_t data);
+
 #define	if_name(ifp)	ifp->if_xname
 /*
  * Structure defining a network interface.
@@ -768,6 +829,7 @@ struct ifnet {
 	struct if_description if_desc;	/* extended description */
 	TAILQ_ENTRY(ifnet) if_link;	/* all struct ifnets are chained */
 	TAILQ_ENTRY(ifnet) if_detaching_link; /* list of detaching ifnets */
+	TAILQ_ENTRY(ifnet) if_ordered_link;	/* list of ordered ifnets */
 
 	decl_lck_mtx_data(, if_ref_lock)
 	u_int32_t	if_refflags;	/* see IFRF flags below */
@@ -778,6 +840,8 @@ struct ifnet {
 #define	if_addrlist	if_addrhead
 	struct ifaddr	*if_lladdr;	/* link address (first/permanent) */
 
+	u_int32_t	if_qosmarking_mode;	/* generation to use with NECP clients */
+
 	int		if_pcount;	/* number of promiscuous listeners */
 	struct bpf_if	*if_bpf;	/* packet filter structure */
 	u_short		if_index;	/* numeric abbreviation for this if  */
@@ -785,6 +849,7 @@ struct ifnet {
 	short		if_timer;	/* time 'til if_watchdog called */
 	short		if_flags;	/* up/down, broadcast, etc. */
 	u_int32_t	if_eflags;	/* see <net/if.h> */
+	u_int32_t	if_xflags;	/* see <net/if.h> */
 
 	int		if_capabilities;	/* interface features & capabilities */
 	int		if_capenable;		/* enabled features & capabilities */
@@ -797,9 +862,11 @@ struct ifnet {
 	ifnet_family_t		if_family;	/* value assigned by Apple */
 	ifnet_subfamily_t	if_subfamily;	/* value assigned by Apple */
 	uintptr_t		if_family_cookie;
+	volatile dlil_input_func if_input_dlil;
+	volatile dlil_output_func if_output_dlil;
+	volatile ifnet_start_func if_start;
 	ifnet_output_func	if_output;
 	ifnet_pre_enqueue_func	if_pre_enqueue;
-	ifnet_start_func	if_start;
 	ifnet_ctl_func		if_output_ctl;
 	ifnet_input_poll_func	if_input_poll;
 	ifnet_ctl_func		if_input_ctl;
@@ -860,7 +927,9 @@ struct ifnet {
 
 	struct dlil_threading_info *if_inp;
 
-	struct	ifprefixhead	if_prefixhead;	/* list of prefixes per if */
+	/* allocated once along with dlil_ifnet and is never freed */
+	thread_call_t		if_dt_tcall;
+
 	struct {
 		u_int32_t	length;
 		union {
@@ -872,7 +941,6 @@ struct ifnet {
 	struct label		*if_label;	/* interface MAC label */
 #endif
 
-	u_int32_t		if_wake_properties;
 #if PF
 	struct pfi_kif		*if_pf_kif;
 #endif /* PF */
@@ -893,6 +961,7 @@ struct ifnet {
 	u_int32_t		if_idle_new_flags; /* temporary idle flags */
 	u_int32_t		if_idle_new_flags_mask; /* temporary mask */
 	u_int32_t		if_route_refcnt; /* idle: route ref count */
+	u_int32_t		if_rt_sendts;	/* last of a real time packet */
 
 	struct if_traffic_class if_tc __attribute__((aligned(8)));
 #if INET
@@ -902,9 +971,6 @@ struct ifnet {
 	struct mld_ifinfo	*if_mli;	/* for MLDv2 */
 #endif /* INET6 */
 
-#if MEASURE_BW
-	struct if_measured_bw	if_bw;
-#endif /* MEASURE_BW */
 	struct tcpstat_local	*if_tcp_stat;	/* TCP specific stats */
 	struct udpstat_local	*if_udp_stat;	/* UDP specific stats */
 
@@ -923,12 +989,20 @@ struct ifnet {
 		uint32_t	expensive:1;	/* delegated i/f expensive? */
 	} if_delegated;
 
-#define	IF_MAXAGENTS	8
-	uuid_t			if_agentids[IF_MAXAGENTS];
+	uuid_t			*if_agentids;	/* network agents attached to interface */
+	u_int32_t		if_agentcount;
+
+	u_int32_t		if_generation;	/* generation to use with NECP clients */
+	u_int32_t		if_fg_sendts;	/* last send on a fg socket in seconds */
 
 	u_int64_t		if_data_threshold;
-	u_int32_t		if_fg_sendts;	/* last send on a fg socket in seconds */
-	u_int32_t		if_rt_sendts;	/* last of a real time packet */
+
+	/* Total bytes in send socket buffer */
+	int64_t			if_sndbyte_total __attribute__ ((aligned(8)));
+	/* Total unsent bytes in send socket buffer */
+	int64_t			if_sndbyte_unsent __attribute__ ((aligned(8)));
+	/* count of times, when there was data to send when sleep is impending */
+	uint32_t		if_unsent_data_cnt;
 
 #if INET
 	decl_lck_rw_data(, if_inetdata_lock);
@@ -943,7 +1017,25 @@ struct ifnet {
 	struct if_interface_state	if_interface_state;
 	struct if_tcp_ecn_stat *if_ipv4_stat;
 	struct if_tcp_ecn_stat *if_ipv6_stat;
+
+	struct if_lim_perf_stat if_lim_stat;
 };
+
+/* Interface event handling declarations */
+extern struct eventhandler_lists_ctxt ifnet_evhdlr_ctxt;
+
+typedef enum {
+	INTF_EVENT_CODE_CREATED,
+	INTF_EVENT_CODE_REMOVED,
+	INTF_EVENT_CODE_STATUS_UPDATE,
+	INTF_EVENT_CODE_IPADDR_ATTACHED,
+	INTF_EVENT_CODE_IPADDR_DETACHED,
+	INTF_EVENT_CODE_LLADDR_UPDATE,
+	INTF_EVENT_CODE_MTU_CHANGED,
+} intf_event_code_t;
+
+typedef void (*ifnet_event_fn)(struct eventhandler_entry_arg, struct ifnet *, struct sockaddr *, intf_event_code_t);
+EVENTHANDLER_DECLARE(ifnet_event, ifnet_event_fn);
 
 #define	IF_TCP_STATINC(_ifp, _s) do {					\
 	if ((_ifp)->if_tcp_stat != NULL)				\
@@ -958,9 +1050,14 @@ struct ifnet {
 /*
  * Valid values for if_refflags
  */
-#define	IFRF_ATTACHED	0x1	/* ifnet attach is completely done */
-#define	IFRF_DETACHING	0x2	/* detach has been requested */
+#define	IFRF_EMBRYONIC	0x1	/* ifnet is allocated; awaiting attach */
+#define	IFRF_ATTACHED	0x2	/* ifnet attach is completely done */
+#define	IFRF_DETACHING	0x4	/* detach has been requested */
+#define	IFRF_ATTACH_MASK	\
+	(IFRF_EMBRYONIC|IFRF_ATTACHED|IFRF_DETACHING)
 
+#define	IF_FULLY_ATTACHED(_ifp)	\
+	(((_ifp)->if_refflags & IFRF_ATTACH_MASK) == IFRF_ATTACHED)
 /*
  * Valid values for if_start_flags
  */
@@ -1083,7 +1180,16 @@ struct ifaddr {
 	    (struct ifaddr *, int);
 	void (*ifa_attached)(struct ifaddr *); /* callback fn for attaching */
 	void (*ifa_detached)(struct ifaddr *); /* callback fn for detaching */
+#if __arm__ && (__BIGGEST_ALIGNMENT__ > 4)
+/* For the newer ARMv7k ABI where 64-bit types are 64-bit aligned, but pointers
+ * are 32-bit:
+ * Align to 64-bit since we cast to this to struct in6_ifaddr, which is
+ * 64-bit aligned
+ */
+} __attribute__ ((aligned(8)));
+#else
 };
+#endif
 
 
 /*
@@ -1100,14 +1206,14 @@ struct ifaddr {
 #define	IFD_DEBUG	0x4		/* has debugging info */
 #define	IFD_LINK	0x8		/* link address */
 #define	IFD_TRASHED	0x10		/* in trash list */
-#define	IFD_SKIP	0x20		/* skip this entry */
+#define	IFD_DETACHING	0x20		/* detach is in progress */
 #define	IFD_NOTREADY	0x40		/* embryonic; not yet ready */
 
 #define	IFA_LOCK_ASSERT_HELD(_ifa)					\
-	lck_mtx_assert(&(_ifa)->ifa_lock, LCK_MTX_ASSERT_OWNED)
+	LCK_MTX_ASSERT(&(_ifa)->ifa_lock, LCK_MTX_ASSERT_OWNED)
 
 #define	IFA_LOCK_ASSERT_NOTHELD(_ifa)					\
-	lck_mtx_assert(&(_ifa)->ifa_lock, LCK_MTX_ASSERT_NOTOWNED)
+	LCK_MTX_ASSERT(&(_ifa)->ifa_lock, LCK_MTX_ASSERT_NOTOWNED)
 
 #define	IFA_LOCK(_ifa)							\
 	lck_mtx_lock(&(_ifa)->ifa_lock)
@@ -1135,20 +1241,6 @@ struct ifaddr {
 
 #define	IFA_REMREF_LOCKED(_ifa)						\
 	ifa_remref(_ifa, 1)
-
-/*
- * The prefix structure contains information about one prefix
- * of an interface.  They are maintained by the different address families,
- * are allocated and attached when an prefix or an address is set,
- * and are linked together so all prefixes for an interface can be located.
- */
-struct ifprefix {
-	struct	sockaddr *ifpr_prefix;	/* prefix of interface */
-	struct	ifnet *ifpr_ifp;	/* back-pointer to interface */
-	TAILQ_ENTRY(ifprefix) ifpr_list; /* queue macro glue */
-	u_char	ifpr_plen;		/* prefix length in bits */
-	u_char	ifpr_type;		/* protocol dependent prefix type */
-};
 
 /*
  * Multicast address structure.  This is analogous to the ifaddr
@@ -1179,10 +1271,10 @@ struct ifmultiaddr {
 #define	IFMAF_ANONYMOUS		0x1	/* has anonymous request ref(s) held */
 
 #define	IFMA_LOCK_ASSERT_HELD(_ifma)					\
-	lck_mtx_assert(&(_ifma)->ifma_lock, LCK_MTX_ASSERT_OWNED)
+	LCK_MTX_ASSERT(&(_ifma)->ifma_lock, LCK_MTX_ASSERT_OWNED)
 
 #define	IFMA_LOCK_ASSERT_NOTHELD(_ifma)					\
-	lck_mtx_assert(&(_ifma)->ifma_lock, LCK_MTX_ASSERT_NOTOWNED)
+	LCK_MTX_ASSERT(&(_ifma)->ifma_lock, LCK_MTX_ASSERT_NOTOWNED)
 
 #define	IFMA_LOCK(_ifma)						\
 	lck_mtx_lock(&(_ifma)->ifma_lock)
@@ -1265,9 +1357,18 @@ struct ifmultiaddr {
 	(_ifp)->if_delegated.family == IFNET_FAMILY_FIREWIRE)
 
 /*
+ * Indicate whether or not the immediate WiFi interface is on an infrastructure
+ * network
+ */
+#define	IFNET_IS_WIFI_INFRA(_ifp)				\
+	((_ifp)->if_family == IFNET_FAMILY_ETHERNET &&		\
+	(_ifp)->if_subfamily == IFNET_SUBFAMILY_WIFI &&		\
+	!((_ifp)->if_eflags & IFEF_AWDL))
+
+/*
  * Indicate whether or not the immediate interface, or the interface delegated
- * by it, is marked as expensive.  The delegated interface is set/cleared 
- * along with the delegated ifp; we cache the flag for performance to avoid 
+ * by it, is marked as expensive.  The delegated interface is set/cleared
+ * along with the delegated ifp; we cache the flag for performance to avoid
  * dereferencing delegated ifp each time.
  *
  * Note that this is meant to be used only for policy purposes.
@@ -1283,8 +1384,12 @@ struct ifmultiaddr {
 	(((_ifp)->if_eflags & (IFEF_AWDL|IFEF_AWDL_RESTRICTED)) == 	\
 	    (IFEF_AWDL|IFEF_AWDL_RESTRICTED))
 
+#define	IFNET_IS_INTCOPROC(_ifp)					\
+	((_ifp)->if_family == IFNET_FAMILY_ETHERNET &&			\
+	 (_ifp)->if_subfamily == IFNET_SUBFAMILY_INTCOPROC)
 
 extern struct ifnethead ifnet_head;
+extern struct ifnethead ifnet_ordered_head;
 extern struct ifnet **ifindex2ifnet;
 extern u_int32_t if_sndq_maxlen;
 extern u_int32_t if_rcvq_maxlen;
@@ -1295,8 +1400,6 @@ extern lck_grp_t *ifa_mtx_grp;
 extern lck_grp_t *ifnet_lock_group;
 extern lck_attr_t *ifnet_lock_attr;
 extern ifnet_t lo_ifp;
-extern uint32_t if_bw_measure_size;
-extern u_int32_t if_bw_smoothing_val;
 
 extern int if_addmulti(struct ifnet *, const struct sockaddr *,
     struct ifmultiaddr **);
@@ -1313,6 +1416,8 @@ __private_extern__ void if_updown(struct ifnet *ifp, int up);
 extern int ifioctl(struct socket *, u_long, caddr_t, struct proc *);
 extern int ifioctllocked(struct socket *, u_long, caddr_t, struct proc *);
 extern struct ifnet *ifunit(const char *);
+extern struct ifnet *ifunit_ref(const char *);
+extern int ifunit_extract(const char *src, char *dst, size_t dstlen, int *unit);
 extern struct ifnet *if_withname(struct sockaddr *);
 extern void if_qflush(struct ifnet *, int);
 extern void if_qflush_sc(struct ifnet *, mbuf_svc_class_t, u_int32_t,
@@ -1322,10 +1427,9 @@ extern struct if_clone *if_clone_lookup(const char *, u_int32_t *);
 extern int if_clone_attach(struct if_clone *);
 extern void if_clone_detach(struct if_clone *);
 
-extern u_int32_t if_functional_type(struct ifnet *);
+extern u_int32_t if_functional_type(struct ifnet *, bool);
 
 extern errno_t if_mcasts_update(struct ifnet *);
-extern int32_t total_snd_byte_count;
 
 typedef enum {
 	IFNET_LCK_ASSERT_EXCLUSIVE,	/* RW: held as writer */
@@ -1336,6 +1440,9 @@ typedef enum {
 
 #define	IF_LLADDR(_ifp)	\
 	(LLADDR(SDL(((_ifp)->if_lladdr)->ifa_addr)))
+
+#define	IF_INDEX_IN_RANGE(_ind_) ((_ind_) > 0 && \
+	(unsigned int)(_ind_) <= (unsigned int)if_index)
 
 __private_extern__ void ifnet_lock_assert(struct ifnet *, ifnet_lock_assert_t);
 __private_extern__ void ifnet_lock_shared(struct ifnet *ifp);
@@ -1357,10 +1464,12 @@ __private_extern__ void if_inet6data_lock_done(struct ifnet *ifp);
 __private_extern__ void	ifnet_head_lock_shared(void);
 __private_extern__ void	ifnet_head_lock_exclusive(void);
 __private_extern__ void	ifnet_head_done(void);
+__private_extern__ void	ifnet_head_assert_exclusive(void);
 
 __private_extern__ errno_t ifnet_set_idle_flags_locked(ifnet_t, u_int32_t,
     u_int32_t);
 __private_extern__ int ifnet_is_attached(struct ifnet *, int refio);
+__private_extern__ void ifnet_incr_iorefcnt(struct ifnet *);
 __private_extern__ void ifnet_decr_iorefcnt(struct ifnet *);
 __private_extern__ void ifnet_set_start_cycle(struct ifnet *,
     struct timespec *);
@@ -1377,7 +1486,10 @@ __private_extern__ void dlil_if_unlock(void);
 __private_extern__ void dlil_if_lock_assert(void);
 
 extern struct ifaddr *ifa_ifwithaddr(const struct sockaddr *);
+extern struct ifaddr *ifa_ifwithaddr_locked(const struct sockaddr *);
 extern struct ifaddr *ifa_ifwithaddr_scoped(const struct sockaddr *,
+    unsigned int);
+extern struct ifaddr *ifa_ifwithaddr_scoped_locked(const struct sockaddr *,
     unsigned int);
 extern struct ifaddr *ifa_ifwithdstaddr(const struct sockaddr *);
 extern struct ifaddr *ifa_ifwithnet(const struct sockaddr *);
@@ -1415,6 +1527,171 @@ extern int ifnet_set_log(struct ifnet *, int32_t, uint32_t, int32_t, int32_t);
 extern int ifnet_get_log(struct ifnet *, int32_t *, uint32_t *, int32_t *,
     int32_t *);
 extern int ifnet_notify_address(struct ifnet *, int);
+extern void ifnet_notify_data_threshold(struct ifnet *);
+
+#define IF_AFDATA_RLOCK         if_afdata_rlock
+#define IF_AFDATA_RUNLOCK       if_afdata_unlock
+#define IF_AFDATA_WLOCK         if_afdata_wlock
+#define IF_AFDATA_WUNLOCK       if_afdata_unlock
+#define IF_AFDATA_WLOCK_ASSERT  if_afdata_wlock_assert
+#define IF_AFDATA_LOCK_ASSERT   if_afdata_lock_assert
+#define IF_AFDATA_UNLOCK_ASSERT if_afdata_unlock_assert
+
+static inline void
+if_afdata_rlock (struct ifnet *ifp, int af)
+{
+	switch (af) {
+#if INET
+	case AF_INET:
+		lck_rw_lock_shared(&ifp->if_inetdata_lock);
+		break;
+#endif
+#if INET6
+	case AF_INET6:
+		lck_rw_lock_shared(&ifp->if_inet6data_lock);
+		break;
+#endif
+	default:
+		VERIFY(0);
+		/* NOTREACHED */
+	}
+	return;
+}
+
+static inline void
+if_afdata_runlock (struct ifnet *ifp, int af)
+{
+	switch (af) {
+#if INET
+	case AF_INET:
+		lck_rw_done(&ifp->if_inetdata_lock);
+		break;
+#endif
+#if INET6
+	case AF_INET6:
+		lck_rw_done(&ifp->if_inet6data_lock);
+		break;
+#endif
+	default:
+		VERIFY(0);
+		/* NOTREACHED */
+	}
+	return;
+}
+
+static inline void
+if_afdata_wlock (struct ifnet *ifp, int af)
+{
+	switch (af) {
+#if INET
+	case AF_INET:
+		lck_rw_lock_exclusive(&ifp->if_inetdata_lock);
+		break;
+#endif
+#if INET6
+	case AF_INET6:
+		lck_rw_lock_exclusive(&ifp->if_inet6data_lock);
+		break;
+#endif
+	default:
+		VERIFY(0);
+		/* NOTREACHED */
+	}
+	return;
+}
+
+static inline void
+if_afdata_unlock (struct ifnet *ifp, int af)
+{
+	switch (af) {
+#if INET
+	case AF_INET:
+		lck_rw_done(&ifp->if_inetdata_lock);
+		break;
+#endif
+#if INET6
+	case AF_INET6:
+		lck_rw_done(&ifp->if_inet6data_lock);
+		break;
+#endif
+	default:
+		VERIFY(0);
+		/* NOTREACHED */
+	}
+	return;
+}
+
+static inline void
+if_afdata_wlock_assert (struct ifnet *ifp, int af)
+{
+#if !MACH_ASSERT
+#pragma unused(ifp)
+#endif
+	switch (af) {
+#if INET
+	case AF_INET:
+		LCK_RW_ASSERT(&ifp->if_inetdata_lock, LCK_RW_ASSERT_EXCLUSIVE);
+		break;
+#endif
+#if INET6
+	case AF_INET6:
+		LCK_RW_ASSERT(&ifp->if_inet6data_lock, LCK_RW_ASSERT_EXCLUSIVE);
+		break;
+#endif
+	default:
+		VERIFY(0);
+		/* NOTREACHED */
+	}
+	return;
+}
+
+static inline void
+if_afdata_unlock_assert (struct ifnet *ifp, int af)
+{
+#if !MACH_ASSERT
+#pragma unused(ifp)
+#endif
+	switch (af) {
+#if INET
+	case AF_INET:
+		LCK_RW_ASSERT(&ifp->if_inetdata_lock, LCK_RW_ASSERT_NOTHELD);
+		break;
+#endif
+#if INET6
+	case AF_INET6:
+		LCK_RW_ASSERT(&ifp->if_inet6data_lock, LCK_RW_ASSERT_NOTHELD);
+		break;
+#endif
+	default:
+		VERIFY(0);
+		/* NOTREACHED */
+	}
+	return;
+}
+
+static inline void
+if_afdata_lock_assert (struct ifnet *ifp, int af)
+{
+#if !MACH_ASSERT
+#pragma unused(ifp)
+#endif
+	switch (af) {
+#if INET
+	case AF_INET:
+		LCK_RW_ASSERT(&ifp->if_inetdata_lock, LCK_RW_ASSERT_HELD);
+		break;
+#endif
+#if INET6
+	case AF_INET6:
+		LCK_RW_ASSERT(&ifp->if_inet6data_lock, LCK_RW_ASSERT_HELD);
+		break;
+#endif
+	default:
+		VERIFY(0);
+		/* NOTREACHED */
+	}
+	return;
+}
 
 #if INET6
 struct in6_addr;
@@ -1474,9 +1751,39 @@ __private_extern__ int ifnet_set_netsignature(struct ifnet *, uint8_t,
 __private_extern__ int ifnet_get_netsignature(struct ifnet *, uint8_t,
     uint8_t *, uint16_t *, uint8_t *);
 
+#if INET6
+struct ipv6_prefix;
+__private_extern__ int ifnet_set_nat64prefix(struct ifnet *,
+    struct ipv6_prefix *);
+__private_extern__ int ifnet_get_nat64prefix(struct ifnet *,
+    struct ipv6_prefix *);
+#endif
+
+/* Required exclusive ifnet_head lock */
+__private_extern__ void ifnet_remove_from_ordered_list(struct ifnet *);
+
+__private_extern__ void ifnet_increment_generation(struct ifnet *);
+__private_extern__ u_int32_t ifnet_get_generation(struct ifnet *);
+
+/* Adding and deleting netagents will take ifnet lock */
+__private_extern__ int if_add_netagent(struct ifnet *, uuid_t);
+__private_extern__ int if_delete_netagent(struct ifnet *, uuid_t);
+
+extern int if_set_qosmarking_mode(struct ifnet *, u_int32_t);
+__private_extern__ uint32_t ifnet_mbuf_packetpreamblelen(struct ifnet *);
+__private_extern__ void intf_event_enqueue_nwk_wq_entry(struct ifnet *ifp,
+    struct sockaddr *addrp, uint32_t intf_event_code);
+__private_extern__ void ifnet_update_stats_per_flow(struct ifnet_stats_per_flow *,
+    struct ifnet *);
+#if !CONFIG_EMBEDDED
 __private_extern__ errno_t ifnet_framer_stub(struct ifnet *, struct mbuf **,
     const struct sockaddr *, const char *, const char *, u_int32_t *,
     u_int32_t *);
+#endif /* !CONFIG_EMBEDDED */
+__private_extern__ void ifnet_enqueue_multi_setup(struct ifnet *, uint16_t,
+    uint16_t);
+__private_extern__ errno_t ifnet_enqueue_mbuf(struct ifnet *, struct mbuf *,
+    boolean_t, boolean_t *);
 #endif /* BSD_KERNEL_PRIVATE */
 #ifdef XNU_KERNEL_PRIVATE
 /* for uuid.c */

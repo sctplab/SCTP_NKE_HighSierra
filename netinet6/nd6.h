@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2015 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2017 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -57,6 +57,7 @@
 #ifndef _NETINET6_ND6_H_
 #define	_NETINET6_ND6_H_
 #include <sys/appleapiopts.h>
+#include <net/net_kev.h>
 
 /* see net/route.h, or net/if_inarp.h */
 #ifndef RTF_ANNOUNCE
@@ -69,6 +70,7 @@
 #include <net/flowadv.h>
 #include <kern/locks.h>
 #include <sys/tree.h>
+#include <sys/eventhandler.h>
 #include <netinet6/nd6_var.h>
 
 struct	llinfo_nd6 {
@@ -114,6 +116,26 @@ struct	llinfo_nd6 {
 #define	ND6_LLINFO_PROBE	4
 
 #ifdef BSD_KERNEL_PRIVATE
+
+#define ND6_CACHE_STATE_TRANSITION(ln, nstate) do {\
+	struct rtentry *ln_rt = (ln)->ln_rt; \
+	if (nd6_debug >= 1) {\
+		nd6log((LOG_INFO,\
+		    "[%s:%d]: NDP cache entry changed from %s -> %s",\
+		    __func__,\
+		    __LINE__,\
+		    ndcache_state2str((ln)->ln_state),\
+		    ndcache_state2str(nstate)));\
+		if (ln_rt != NULL)\
+			nd6log((LOG_INFO,\
+			    " for address: %s.\n",\
+			    ip6_sprintf(&SIN6(rt_key(ln_rt))->sin6_addr)));\
+		else\
+			nd6log((LOG_INFO, "\n"));\
+	}\
+	(ln)->ln_state = nstate;\
+} while(0)
+
 #define	ND6_IS_LLINFO_PROBREACH(n) ((n)->ln_state > ND6_LLINFO_INCOMPLETE)
 #define	ND6_LLINFO_PERMANENT(n) \
 	(((n)->ln_expire == 0) && ((n)->ln_state > ND6_LLINFO_INCOMPLETE))
@@ -177,6 +199,7 @@ struct nd_ifinfo_compat {
 #define	ND6_IFF_INSECURE		0x80
 #endif
 #define	ND6_IFF_REPLICATED		0x100	/* sleep proxy registered */
+#define	ND6_IFF_DAD			0x200	/* Perform DAD on the interface */
 
 struct in6_nbrinfo {
 	char ifname[IFNAMSIZ];	/* if name, e.g. "en0" */
@@ -249,9 +272,7 @@ struct	in6_drlist_64 {
 #define	NDDRF_INSTALLED	0x1	/* installed in the routing table */
 #define	NDDRF_IFSCOPE	0x2	/* installed as a scoped route */
 #define	NDDRF_STATIC	0x4	/* for internal use only */
-#ifdef BSD_KERNEL_PRIVATE
-#define	NDDRF_PROCESSED	0x10
-#endif
+#define	NDDRF_MAPPED	0x8	/* Default router addr is mapped to a different one for routing */
 
 struct	in6_defrouter {
 	struct	sockaddr_in6 rtaddr;
@@ -506,17 +527,17 @@ struct	nd_defrouter {
 	u_char		flags;			/* flags on RA message */
 	u_char		stateflags;
 	u_short		rtlifetime;
-	unsigned int	genid;
 	int		err;
 	struct ifnet	*ifp;
+	struct in6_addr rtaddr_mapped;		/* Mapped gateway address for routing */
 	void (*nddr_trace)(struct nd_defrouter *, int); /* trace callback fn */
 };
 
 #define	NDDR_LOCK_ASSERT_HELD(_nddr)					\
-	lck_mtx_assert(&(_nddr)->nddr_lock, LCK_MTX_ASSERT_OWNED)
+	LCK_MTX_ASSERT(&(_nddr)->nddr_lock, LCK_MTX_ASSERT_OWNED)
 
 #define	NDDR_LOCK_ASSERT_NOTHELD(_nddr)					\
-	lck_mtx_assert(&(_nddr)->nddr_lock, LCK_MTX_ASSERT_NOTOWNED)
+	LCK_MTX_ASSERT(&(_nddr)->nddr_lock, LCK_MTX_ASSERT_NOTOWNED)
 
 #define	NDDR_LOCK(_nddr)						\
 	lck_mtx_lock(&(_nddr)->nddr_lock)
@@ -591,10 +612,10 @@ struct nd_prefix {
 #define	NDPR_KEEP_EXPIRED	(1800 * 2)
 
 #define	NDPR_LOCK_ASSERT_HELD(_ndpr)					\
-	lck_mtx_assert(&(_ndpr)->ndpr_lock, LCK_MTX_ASSERT_OWNED)
+	LCK_MTX_ASSERT(&(_ndpr)->ndpr_lock, LCK_MTX_ASSERT_OWNED)
 
 #define	NDPR_LOCK_ASSERT_NOTHELD(_ndpr)					\
-	lck_mtx_assert(&(_ndpr)->ndpr_lock, LCK_MTX_ASSERT_NOTOWNED)
+	LCK_MTX_ASSERT(&(_ndpr)->ndpr_lock, LCK_MTX_ASSERT_NOTOWNED)
 
 #define	NDPR_LOCK(_ndpr)						\
 	lck_mtx_lock(&(_ndpr)->ndpr_lock)
@@ -649,9 +670,6 @@ struct inet6_ndpr_msghdr {
 #define	prm_rrf_decrvalid	prm_flags.prf_rr.decrvalid
 #define	prm_rrf_decrprefd	prm_flags.prf_rr.decrprefd
 
-#define	ifpr2ndpr(ifpr)	((struct nd_prefix *)(ifpr))
-#define	ndpr2ifpr(ndpr)	((struct ifprefix *)(ndpr))
-
 struct nd_pfxrouter {
 	LIST_ENTRY(nd_pfxrouter) pfr_entry;
 #define	pfr_next pfr_entry.le_next
@@ -675,17 +693,6 @@ struct kev_nd6_ndalive {
 	struct net_event_data link_data;
 };
 
-/* ND6 kernel event subclass value */
-#define	KEV_ND6_SUBCLASS                7
-
-/* ND6 kernel event action type */
-#define	KEV_ND6_RA                      1
-#define	KEV_ND6_NDFAILURE               2 /* IPv6 neighbor cache entry expiry */
-#define	KEV_ND6_NDALIVE                 3 /* IPv6 neighbor reachable */
-
-/* ND6 RA L2 source address length */
-#define	ND6_ROUTER_LL_SIZE		64
-
 struct nd6_ra_prefix {
 	struct sockaddr_in6 prefix;
 	struct prf_ra raflags;
@@ -705,8 +712,6 @@ struct nd6_ra_prefix {
 #define	KEV_ND6_DATA_VALID_PREFIX	(0x1 << 1)
 
 struct kev_nd6_ra_data {
-	u_int8_t lladdr[ND6_ROUTER_LL_SIZE];
-	u_int32_t lladdrlen;
 	u_int32_t mtu;
 	u_int32_t list_index;
 	u_int32_t list_length;
@@ -714,6 +719,24 @@ struct kev_nd6_ra_data {
 	struct nd6_ra_prefix prefix;
 	u_int32_t pad;
 };
+
+struct kev_nd6_event {
+	struct net_event_data link_data;
+	struct in6_addr in6_address;
+	uint32_t val;
+};
+
+struct nd6_lookup_ipv6_args {
+	char ifname[IFNAMSIZ];
+	struct sockaddr_in6 ip6_dest;
+	u_int32_t ll_dest_len;
+	union {
+		char buffer[256];
+		struct sockaddr_dl _sdl;
+	} ll_dest_;
+};
+#define ll_dest_sdl ll_dest_._sdl
+
 #endif /* PRIVATE */
 
 #if defined(BSD_KERNEL_PRIVATE)
@@ -734,6 +757,7 @@ extern int nd6_debug;
 extern int nd6_onlink_ns_rfc4861;
 extern int nd6_optimistic_dad;
 
+#define nd6log0(x)	do { log x; } while (0)
 #define	nd6log(x)	do { if (nd6_debug >= 1) log x; } while (0)
 #define	nd6log2(x)	do { if (nd6_debug >= 2) log x; } while (0)
 
@@ -753,7 +777,7 @@ extern u_int32_t ip6_temp_valid_lifetime; /* seconds */
 extern int ip6_temp_regen_advance; /* seconds */
 
 union nd_opts {
-	struct nd_opt_hdr *nd_opt_array[8];	/* max = target address list */
+	struct nd_opt_hdr *nd_opt_array[16];	/* max = target address list */
 	struct {
 		struct nd_opt_hdr *zero;
 		struct nd_opt_hdr *src_lladdr;
@@ -761,6 +785,16 @@ union nd_opts {
 		struct nd_opt_prefix_info *pi_beg; /* multiple opts, start */
 		struct nd_opt_rd_hdr *rh;
 		struct nd_opt_mtu *mtu;
+		struct nd_opt_hdr *__res6;
+		struct nd_opt_hdr *__res7;
+		struct nd_opt_hdr *__res8;
+		struct nd_opt_hdr *__res9;
+		struct nd_opt_hdr *__res10;
+		struct nd_opt_hdr *__res11;
+		struct nd_opt_hdr *__res12;
+		struct nd_opt_hdr *__res13;
+		struct nd_opt_nonce *nonce;
+		struct nd_opt_hdr *__res15;
 		struct nd_opt_hdr *search;	/* multiple opts */
 		struct nd_opt_hdr *last;	/* multiple opts */
 		int done;
@@ -773,6 +807,7 @@ union nd_opts {
 #define	nd_opts_pi_end		nd_opt_each.pi_end
 #define	nd_opts_rh		nd_opt_each.rh
 #define	nd_opts_mtu		nd_opt_each.mtu
+#define nd_opts_nonce		nd_opt_each.nonce
 #define	nd_opts_search		nd_opt_each.search
 #define	nd_opts_last		nd_opt_each.last
 #define	nd_opts_done		nd_opt_each.done
@@ -808,8 +843,9 @@ extern int nd6_storelladdr(struct ifnet *, struct rtentry *, struct mbuf *,
 extern int nd6_need_cache(struct ifnet *);
 extern void nd6_drain(void *);
 extern void nd6_post_msg(u_int32_t, struct nd_prefix_list *, u_int32_t,
-    u_int32_t, char *, u_int32_t);
+    u_int32_t);
 extern int nd6_setifinfo(struct ifnet *, u_int32_t, u_int32_t);
+extern const char *ndcache_state2str(short);
 extern void ln_setexpire(struct llinfo_nd6 *, uint64_t);
 
 /* nd6_nbr.c */
@@ -819,7 +855,7 @@ extern void nd6_na_output(struct ifnet *, const struct in6_addr *,
     const struct in6_addr *, u_int32_t, int, struct sockaddr *);
 extern void nd6_ns_input(struct mbuf *, int, int);
 extern void nd6_ns_output(struct ifnet *, const struct in6_addr *,
-    const struct in6_addr *, struct llinfo_nd6 *, int);
+    const struct in6_addr *, struct llinfo_nd6 *, uint8_t *);
 extern caddr_t nd6_ifptomac(struct ifnet *);
 extern void nd6_dad_start(struct ifaddr *, int *);
 extern void nd6_dad_stop(struct ifaddr *);
@@ -880,12 +916,13 @@ extern boolean_t nd6_prproxy_isours(struct mbuf *, struct ip6_hdr *,
 extern void nd6_prproxy_ns_output(struct ifnet *, struct ifnet *,
     struct in6_addr *, struct in6_addr *, struct llinfo_nd6 *);
 extern void nd6_prproxy_ns_input(struct ifnet *, struct in6_addr *,
-    char *, int, struct in6_addr *, struct in6_addr *);
+    char *, int, struct in6_addr *, struct in6_addr *, uint8_t *nonce);
 extern void nd6_prproxy_na_input(struct ifnet *, struct in6_addr *,
     struct in6_addr *, struct in6_addr *, int);
 extern void nd6_prproxy_sols_reap(struct nd_prefix *);
 extern void nd6_prproxy_sols_prune(struct nd_prefix *, u_int32_t);
 extern int nd6_if_disable(struct ifnet *, boolean_t);
+void in6_ifaddr_set_dadprogress(struct in6_ifaddr *ia);
 #endif /* BSD_KERNEL_PRIVATE */
 
 #ifdef KERNEL

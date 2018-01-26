@@ -26,6 +26,11 @@
 		509BC22E1C357DB0002A13DF /* radix.h in Headers */ = {isa = PBXBuildFile; fileRef = 509BC2281C357DB0002A13DF /* radix.h */; };
 		509BC22F1C357DB0002A13DF /* route.h in Headers */ = {isa = PBXBuildFile; fileRef = 509BC2291C357DB0002A13DF /* route.h */; };
 		509BC2321C357DE2002A13DF /* locks.h in Headers */ = {isa = PBXBuildFile; fileRef = 509BC2311C357DE2002A13DF /* locks.h */; };
+		50BAD244201BC83000EFBE37 /* guarded.h in Headers */ = {isa = PBXBuildFile; fileRef = 50BAD241201BC82F00EFBE37 /* guarded.h */; };
+		50BAD245201BC83000EFBE37 /* pthread_shims.h in Headers */ = {isa = PBXBuildFile; fileRef = 50BAD242201BC82F00EFBE37 /* pthread_shims.h */; };
+		50BAD246201BC83000EFBE37 /* eventhandler.h in Headers */ = {isa = PBXBuildFile; fileRef = 50BAD243201BC82F00EFBE37 /* eventhandler.h */; };
+		50BAD24F201BCA3400EFBE37 /* mach in Resources */ = {isa = PBXBuildFile; fileRef = 50BAD24E201BCA3400EFBE37 /* mach */; };
+		50BAD253201BCB1B00EFBE37 /* vm in Resources */ = {isa = PBXBuildFile; fileRef = 50BAD252201BCB1B00EFBE37 /* vm */; };
 		50BAFEA8107391A00005425A /* sctp_sys_calls.c in Sources */ = {isa = PBXBuildFile; fileRef = 50BAFEA7107391A00005425A /* sctp_sys_calls.c */; };
 		50BAFEB5107392200005425A /* sctp_asconf.c in Sources */ = {isa = PBXBuildFile; fileRef = 50BAFE42107390EC0005425A /* sctp_asconf.c */; };
 		50BAFEB81073924D0005425A /* sctp6_usrreq.c in Sources */ = {isa = PBXBuildFile; fileRef = 50BAFEA11073915D0005425A /* sctp6_usrreq.c */; };
@@ -73,6 +78,14 @@
 		509BC2281C357DB0002A13DF /* radix.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = radix.h; path = net/radix.h; sourceTree = "<group>"; };
 		509BC2291C357DB0002A13DF /* route.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = route.h; path = net/route.h; sourceTree = "<group>"; };
 		509BC2311C357DE2002A13DF /* locks.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = locks.h; path = i386/locks.h; sourceTree = "<group>"; };
+		50BAD241201BC82F00EFBE37 /* guarded.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = guarded.h; path = sys/guarded.h; sourceTree = "<group>"; };
+		50BAD242201BC82F00EFBE37 /* pthread_shims.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = pthread_shims.h; path = sys/pthread_shims.h; sourceTree = "<group>"; };
+		50BAD243201BC82F00EFBE37 /* eventhandler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = eventhandler.h; path = sys/eventhandler.h; sourceTree = "<group>"; };
+		50BAD247201BC87B00EFBE37 /* in_stat.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = in_stat.h; path = netinet/in_stat.h; sourceTree = "<group>"; };
+		50BAD24E201BCA3400EFBE37 /* mach */ = {isa = PBXFileReference; lastKnownFileType = folder; path = mach; sourceTree = "<group>"; };
+		50BAD250201BCAE700EFBE37 /* if_dl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = if_dl.h; path = net/if_dl.h; sourceTree = "<group>"; };
+		50BAD251201BCAE700EFBE37 /* if_llatbl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = if_llatbl.h; path = net/if_llatbl.h; sourceTree = "<group>"; };
+		50BAD252201BCB1B00EFBE37 /* vm */ = {isa = PBXFileReference; lastKnownFileType = folder; path = vm; sourceTree = "<group>"; };
 		50BAFE42107390EC0005425A /* sctp_asconf.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = sctp_asconf.c; path = netinet/sctp_asconf.c; sourceTree = "<group>"; };
 		50BAFE43107390EC0005425A /* sctp_asconf.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = sctp_asconf.h; path = netinet/sctp_asconf.h; sourceTree = "<group>"; };
 		50BAFE44107390EC0005425A /* sctp_auth.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = sctp_auth.c; path = netinet/sctp_auth.c; sourceTree = "<group>"; };
@@ -197,10 +210,12 @@
 				50C2D1621077EF950088259C /* SCTP.c */,
 				50BAFEA7107391A00005425A /* sctp_sys_calls.c */,
 				50C2D0AC1077B7130088259C /* kern */,
+				50BAD24E201BCA3400EFBE37 /* mach */,
 				509BC2211C357D9C002A13DF /* net */,
 				50BAFE9E1073913B0005425A /* netinet6 */,
 				50BAFE99107391000005425A /* netinet */,
 				50BAFF0810739A080005425A /* sys */,
+				50BAD252201BCB1B00EFBE37 /* vm */,
 			);
 			name = Source;
 			sourceTree = "<group>";
@@ -219,8 +234,10 @@
 			children = (
 				509BC2221C357DB0002A13DF /* classq */,
 				509BC2231C357DB0002A13DF /* flowadv.h */,
-				509BC2241C357DB0002A13DF /* if_var.h */,
 				509BC2251C357DB0002A13DF /* if.h */,
+				50BAD250201BCAE700EFBE37 /* if_dl.h */,
+				50BAD251201BCAE700EFBE37 /* if_llatbl.h */,
+				509BC2241C357DB0002A13DF /* if_var.h */,
 				509BC2261C357DB0002A13DF /* kpi_interface.h */,
 				509BC2271C357DB0002A13DF /* pktsched */,
 				509BC2281C357DB0002A13DF /* radix.h */,
@@ -242,6 +259,7 @@
 			children = (
 				50C2D0C61077B8130088259C /* icmp_var.h */,
 				50C2D0C71077B8130088259C /* in_pcb.h */,
+				50BAD247201BC87B00EFBE37 /* in_stat.h */,
 				50C2D0C81077B8130088259C /* in_var.h */,
 				50C2D0C91077B8130088259C /* ip_var.h */,
 				50C2D0CA1077B8130088259C /* ip6.h */,
@@ -312,9 +330,11 @@
 				509BC20E1C357CFE002A13DF /* bitstring.h */,
 				50C2D08B1077B6D20088259C /* domain.h */,
 				50C2D08C1077B6D20088259C /* event.h */,
+				50BAD243201BC82F00EFBE37 /* eventhandler.h */,
 				50C2D08D1077B6D20088259C /* eventvar.h */,
 				50C2D08E1077B6D20088259C /* file_internal.h */,
 				50C2D08F1077B6D20088259C /* filedesc.h */,
+				50BAD241201BC82F00EFBE37 /* guarded.h */,
 				50C2D0901077B6D20088259C /* kernel_types.h */,
 				50C2D0911077B6D20088259C /* kernel.h */,
 				509BC20F1C357CFE002A13DF /* kpi_mbuf.h */,
@@ -324,6 +344,7 @@
 				50C2D1A210789C180088259C /* proc_internal.h */,
 				50C2D0941077B6D20088259C /* protosw.h */,
 				509BC2111C357CFE002A13DF /* pthread_internal.h */,
+				50BAD242201BC82F00EFBE37 /* pthread_shims.h */,
 				50C2D0951077B6D20088259C /* resourcevar.h */,
 				509BC2121C357CFE002A13DF /* select.h */,
 				50C2D0961077B6D20088259C /* signal.h */,
@@ -366,9 +387,11 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				50BAD245201BC83000EFBE37 /* pthread_shims.h in Headers */,
 				509BC21C1C357D11002A13DF /* tree.h in Headers */,
 				509BC2321C357DE2002A13DF /* locks.h in Headers */,
 				509BC2191C357CFE002A13DF /* tty.h in Headers */,
+				50BAD244201BC83000EFBE37 /* guarded.h in Headers */,
 				509BC22A1C357DB0002A13DF /* flowadv.h in Headers */,
 				509BC22F1C357DB0002A13DF /* route.h in Headers */,
 				509BC2161C357CFE002A13DF /* mcache.h in Headers */,
@@ -376,6 +399,7 @@
 				509BC21D1C357D11002A13DF /* ttydefaults.h in Headers */,
 				50BAFEBC107392740005425A /* sctp.h in Headers */,
 				509BC21F1C357D31002A13DF /* nd6_var.h in Headers */,
+				50BAD246201BC83000EFBE37 /* eventhandler.h in Headers */,
 				509BC2141C357CFE002A13DF /* bitstring.h in Headers */,
 				509BC22E1C357DB0002A13DF /* radix.h in Headers */,
 				509BC22B1C357DB0002A13DF /* if_var.h in Headers */,
@@ -458,6 +482,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				50BAD253201BCB1B00EFBE37 /* vm in Resources */,
+				50BAD24F201BCA3400EFBE37 /* mach in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -573,7 +599,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				GCC_C_LANGUAGE_STANDARD = c99;
+				GCC_C_LANGUAGE_STANDARD = c11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -617,7 +643,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = NO;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				GCC_C_LANGUAGE_STANDARD = c99;
+				GCC_C_LANGUAGE_STANDARD = c11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_MISSING_NEWLINE = YES;

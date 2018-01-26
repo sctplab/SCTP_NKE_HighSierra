@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2015 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2016 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -93,6 +93,7 @@
 #ifndef _NETINET6_IN6_VAR_H_
 #define	_NETINET6_IN6_VAR_H_
 #include <sys/appleapiopts.h>
+#include <net/net_kev.h>
 
 #ifdef BSD_KERNEL_PRIVATE
 #include <sys/tree.h>
@@ -171,9 +172,7 @@ struct in6_ifaddr {
 	u_int64_t ia6_createtime;
 	u_int64_t ia6_updatetime;
 
-	struct ifprefix *ia6_ifpr;	/* back pointer to ifprefix */
-
-	/* back pointer to the ND prefix (for autoconfigured addresses only) */
+	/* back pointer to the ND prefix */
 	struct nd_prefix *ia6_ndpr;
 
 	/* multicast addresses joined from the kernel */
@@ -222,11 +221,17 @@ struct in6_ifstat {
 	u_quad_t ifs6_reass_ok;		/* # of reassembled packets */
 					/* NOTE: this is # after reass */
 					/* NOTE: increment on final dst if */
+	u_quad_t ifs6_atmfrag_rcvd;	/* # of atomic fragments received */
 	u_quad_t ifs6_reass_fail;	/* # of reass failures */
 					/* NOTE: may not be packet count */
 					/* NOTE: increment on final dst if */
 	u_quad_t ifs6_in_mcast;		/* # of inbound multicast datagrams */
 	u_quad_t ifs6_out_mcast;	/* # of outbound multicast datagrams */
+
+	u_quad_t ifs6_cantfoward_icmp6;	/* # of ICMPv6 packets received for unreachable dest */
+	u_quad_t ifs6_addr_expiry_cnt;	/* # of address expiry events (excluding privacy addresses) */
+	u_quad_t ifs6_pfx_expiry_cnt;	/* # of prefix expiry events */
+	u_quad_t ifs6_defrtr_expiry_cnt;	/* # of default router expiry events */
 };
 
 /*
@@ -358,6 +363,11 @@ struct in6_cga_nodecfg {
 	struct in6_cga_prepare cga_prepare;
 };
 
+/*
+ * XXX in6_llstartreq will be removed once
+ * configd adopts the more generically named
+ * in6_cgareq structure.
+ */
 struct in6_llstartreq {
 	char llsr_name[IFNAMSIZ];
 	int llsr_flags;
@@ -365,7 +375,19 @@ struct in6_llstartreq {
 	struct in6_addrlifetime llsr_lifetime;
 };
 
+struct in6_cgareq {
+	char cgar_name[IFNAMSIZ];
+	int cgar_flags;
+	struct in6_cga_prepare cgar_cgaprep;
+	struct in6_addrlifetime cgar_lifetime;
+};
+
 #ifdef BSD_KERNEL_PRIVATE
+/*
+ * XXX Corresponding versions of in6_llstartreq
+ * will be removed after the new in6_cgareq is
+ * adopted by configd
+ */
 struct in6_llstartreq_32 {
 	char llsr_name[IFNAMSIZ];
 	int llsr_flags;
@@ -379,6 +401,21 @@ struct in6_llstartreq_64 {
 	struct in6_cga_prepare llsr_cgaprep;
 	struct in6_addrlifetime_64 llsr_lifetime;
 };
+
+struct in6_cgareq_32 {
+	char cgar_name[IFNAMSIZ];
+	int cgar_flags;
+	struct in6_cga_prepare cgar_cgaprep;
+	struct in6_addrlifetime_32 cgar_lifetime;
+};
+
+struct in6_cgareq_64 {
+	char cgar_name[IFNAMSIZ];
+	int cgar_flags;
+	struct in6_cga_prepare cgar_cgaprep;
+	struct in6_addrlifetime_64 cgar_lifetime;
+};
+
 #endif /* !BSD_KERNEL_PRIVATE */
 #endif /* PRIVATE */
 
@@ -505,18 +542,6 @@ struct kev_in6_data {
 	struct kev_in6_addrlifetime ia_lifetime; /* address life info */
 	uint8_t	ia_mac[ETHER_ADDR_LEN];
 };
-
-/*
- * Define inet6 event subclass and specific inet6 events.
- */
-#define	KEV_INET6_SUBCLASS		6 /* inet6 subclass identifier */
-
-#define	KEV_INET6_NEW_USER_ADDR		1 /* Userland configured IPv6 address */
-#define	KEV_INET6_CHANGED_ADDR		2 /* Address changed event (future) */
-#define	KEV_INET6_ADDR_DELETED		3 /* IPv6 address was deleted */
-#define	KEV_INET6_NEW_LL_ADDR		4 /* Autoconf LL address appeared */
-#define	KEV_INET6_NEW_RTADV_ADDR	5 /* Autoconf address has appeared */
-#define	KEV_INET6_DEFROUTER		6 /* Default router detected */
 
 #ifdef BSD_KERNEL_PRIVATE
 /* Utility function used inside netinet6 kernel code for generating events */
@@ -693,11 +718,14 @@ void in6_post_msg(struct ifnet *, u_int32_t, struct in6_ifaddr *, uint8_t *mac);
 /*
  * start secure link-local interface addresses
  */
-#define	SIOCLL_CGASTART		_IOW('i', 160, struct in6_llstartreq)
+#define	SIOCLL_CGASTART		_IOW('i', 160, struct in6_cgareq)
 #ifdef BSD_KERNEL_PRIVATE
-#define	SIOCLL_CGASTART_32	_IOW('i', 160, struct in6_llstartreq_32)
-#define	SIOCLL_CGASTART_64	_IOW('i', 160, struct in6_llstartreq_64)
+#define	SIOCLL_CGASTART_32	_IOW('i', 160, struct in6_cgareq_32)
+#define	SIOCLL_CGASTART_64	_IOW('i', 160, struct in6_cgareq_64)
 #endif
+#define	SIOCGIFCGAPREP_IN6	_IOWR('i', 187, struct in6_cgareq)
+#define	SIOCSIFCGAPREP_IN6	_IOWR('i', 188, struct in6_cgareq)
+
 #endif /* PRIVATE */
 
 #ifdef BSD_KERNEL_PRIVATE
@@ -733,6 +761,9 @@ void in6_post_msg(struct ifnet *, u_int32_t, struct in6_ifaddr *, uint8_t *mac);
 
 /* do not input/output */
 #define	IN6_IFF_NOTREADY	(IN6_IFF_TENTATIVE|IN6_IFF_DUPLICATED)
+
+/* SLAAC/DHCPv6 address */
+#define IN6_IFF_NOTMANUAL	(IN6_IFF_AUTOCONF|IN6_IFF_DYNAMIC)
 
 #ifdef KERNEL
 #define	IN6_ARE_SCOPE_CMP(a, b)		((a) - (b))
@@ -839,9 +870,11 @@ struct in6_multi_mship {
 
 #ifdef BSD_KERNEL_PRIVATE
 #include <netinet6/nd6_var.h>
+#include <net/if_llatbl.h>
+
 /*
- *  * Per-interface IPv6 structures.
- *   */
+ * Per-interface IPv6 structures.
+ */
 struct in6_ifextra {
 	struct scope6_id        scope6_id;
 	struct in6_ifstat       in6_ifstat;
@@ -849,8 +882,11 @@ struct in6_ifextra {
 	struct nd_ifinfo        nd_ifinfo;
 	uint32_t                netsig_len;
 	u_int8_t                netsig[IFNET_SIGNATURELEN];
+	struct ipv6_prefix      nat64_prefixes[NAT64_MAX_NUM_PREFIXES];
+	struct lltable		*ii_llt;	/* NDP state */
 };
 #define IN6_IFEXTRA(_ifp)       ((struct in6_ifextra *)(_ifp->if_inet6data))
+#define	LLTABLE6(ifp)		((IN6_IFEXTRA(ifp) == NULL) ? NULL : IN6_IFEXTRA(ifp)->ii_llt)
 #endif /* BSD_KERNEL_PRIVATE */
 
 struct mld_ifinfo;
@@ -923,10 +959,10 @@ struct in6_multi {
 };
 
 #define	IN6M_LOCK_ASSERT_HELD(_in6m)					\
-	lck_mtx_assert(&(_in6m)->in6m_lock, LCK_MTX_ASSERT_OWNED)
+	LCK_MTX_ASSERT(&(_in6m)->in6m_lock, LCK_MTX_ASSERT_OWNED)
 
 #define	IN6M_LOCK_ASSERT_NOTHELD(_in6m)					\
-	lck_mtx_assert(&(_in6m)->in6m_lock, LCK_MTX_ASSERT_NOTOWNED)
+	LCK_MTX_ASSERT(&(_in6m)->in6m_lock, LCK_MTX_ASSERT_NOTOWNED)
 
 #define	IN6M_LOCK(_in6m)						\
 	lck_mtx_lock(&(_in6m)->in6m_lock)
@@ -1044,7 +1080,7 @@ struct ip6_pktopts;
 
 /* Multicast private KPIs. */
 extern int im6o_mc_filter(const struct ip6_moptions *, const struct ifnet *,
-    const struct sockaddr *, const struct sockaddr *);
+    const struct sockaddr_in6 *, const struct sockaddr_in6 *);
 extern int in6_mc_join(struct ifnet *, const struct in6_addr *,
     struct in6_mfilter *, struct in6_multi **, int);
 extern int in6_mc_leave(struct in6_multi *, struct in6_mfilter *);
@@ -1093,7 +1129,6 @@ extern int in6_prefix_add_ifid(int iilen, struct in6_ifaddr *ia);
 extern void in6_prefix_remove_ifid(int iilen, struct in6_ifaddr *ia);
 extern void in6_purgeprefix(struct ifnet *);
 extern void in6_purgeaddrs(struct ifnet *);
-extern int in6_is_addr_deprecated(struct sockaddr_in6 *);
 extern uint8_t im6s_get_mode(const struct in6_multi *,
     const struct ip6_msource *, uint8_t);
 extern void im6f_leave(struct in6_mfilter *);
@@ -1125,8 +1160,13 @@ extern int in6_cga_start(const struct in6_cga_nodecfg *);
 extern int in6_cga_stop(void);
 extern ssize_t in6_cga_parameters_prepare(void *, size_t,
     const struct in6_addr *, u_int8_t, const struct in6_cga_modifier *);
-extern int in6_cga_generate(const struct in6_cga_prepare *, u_int8_t,
+extern int in6_cga_generate(struct in6_cga_prepare *, u_int8_t,
     struct in6_addr *);
+extern int in6_getconninfo(struct socket *, sae_connid_t, uint32_t *,
+    uint32_t *, int32_t *, user_addr_t, socklen_t *,
+    user_addr_t, socklen_t *, uint32_t *, user_addr_t, uint32_t *);
+extern void in6_ip6_to_sockaddr(const struct in6_addr *ip6, u_int16_t port,
+								struct sockaddr_in6 *sin6, u_int32_t maxlen);
 
 #endif /* BSD_KERNEL_PRIVATE */
 #endif /* _NETINET6_IN6_VAR_H_ */
