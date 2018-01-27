@@ -27,7 +27,7 @@ I'm currently not providing a signed NKE, since I don't have the necessary certi
 
 ## Installation
 Currently there is no installer provided. Therefore the following manual steps are required.
-You can download a disk image containing all files at [SCTP_NKE_ElCapitan_Install_01.dmg](https://github.com/sctplab/SCTP_NKE_ElCapitan/releases/download/v01/SCTP_NKE_ElCapitan_Install_01.dmg).
+You can download a disk image containing all files at [SCTP_NKE_HighSierra_01.dmg](https://github.com/sctplab/SCTP_NKE_HighSierra/releases/download/v01/SCTP_NKE_HighSierra_01.dmg).
 
 ### Prerequisites
 It is assumed that the comand line tools are installed. This can be done
@@ -39,8 +39,8 @@ xcode-select --install
 ### Installation of KEXTs
 Execute the following commands:
 ```
-sudo cp -R /Volumes/SCTP_NKE_ElCapitan_01/SCTPSupport.kext /Library/Extensions
-sudo cp -R /Volumes/SCTP_NKE_ElCapitan_01/SCTP.kext /Library/Extensions
+sudo cp -R /Volumes/SCTP_NKE_Sierra_01/SCTPSupport.kext /Library/Extensions
+sudo cp -R /Volumes/SCTP_NKE_Sierra_01/SCTP.kext /Library/Extensions
 ```
 The first extension is needed to export additional symbols from the kernel.
 The second extension contains the SCTP relevant code.
@@ -48,10 +48,10 @@ The second extension contains the SCTP relevant code.
 ### Installation of Support Files
 Execute the following commands:
 ```
-sudo cp /Volumes/SCTP_NKE_ElCapitan_01/socket.h /usr/include/sys/
-sudo cp /Volumes/SCTP_NKE_ElCapitan_01/sctp.h /usr/include/netinet/
-sudo cp /Volumes/SCTP_NKE_ElCapitan_01/sctp_uio.h /usr/include/netinet/
-sudo cp /Volumes/SCTP_NKE_ElCapitan_01/libsctp.dylib /usr/lib/
+sudo cp /Volumes/SCTP_NKE_HighSierra_01/socket.h /usr/include/sys/
+sudo cp /Volumes/SCTP_NKE_HighSierra_01/sctp.h /usr/include/netinet/
+sudo cp /Volumes/SCTP_NKE_HighSierra_01/sctp_uio.h /usr/include/netinet/
+sudo cp /Volumes/SCTP_NKE_HighSierra_01/libsctp.dylib /usr/lib/
 ```
 The first command changes an existing file by adding a definition for
 `MSG_NOTIFICATION`. The other commands add additional files.
