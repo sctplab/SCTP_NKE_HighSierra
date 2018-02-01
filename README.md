@@ -39,8 +39,8 @@ xcode-select --install
 ### Installation of KEXTs
 Execute the following commands:
 ```
-sudo cp -R /Volumes/SCTP_NKE_Sierra_01/SCTPSupport.kext /Library/Extensions
-sudo cp -R /Volumes/SCTP_NKE_Sierra_01/SCTP.kext /Library/Extensions
+sudo cp -R /Volumes/SCTP_NKE_HighSierra_01/SCTPSupport.kext /Library/Extensions
+sudo cp -R /Volumes/SCTP_NKE_HighSierra_01/SCTP.kext /Library/Extensions
 ```
 The first extension is needed to export additional symbols from the kernel.
 The second extension contains the SCTP relevant code.
