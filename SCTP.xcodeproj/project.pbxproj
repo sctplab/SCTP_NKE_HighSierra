@@ -317,8 +317,8 @@
 				50BAFE67107390EC0005425A /* sctp_usrreq.c */,
 				50BAFE68107390EC0005425A /* sctp_var.h */,
 				50BAFE69107390EC0005425A /* sctp.h */,
-				50BAFE6A107390EC0005425A /* sctputil.c */,
 				50BAFE6B107390EC0005425A /* sctputil.h */,
+				50BAFE6A107390EC0005425A /* sctputil.c */,
 			);
 			name = netinet;
 			sourceTree = "<group>";
@@ -539,6 +539,7 @@
 			developmentRegion = English;
 			hasScannedForEncodings = 1;
 			knownRegions = (
+				English,
 				en,
 			);
 			mainGroup = 08FB7794FE84155DC02AAC07 /* SCTP */;
