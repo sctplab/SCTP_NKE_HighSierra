@@ -27,7 +27,7 @@ I'm currently not providing a signed NKE, since I don't have the necessary certi
 
 ## Installation
 Currently there is no installer provided. Therefore the following manual steps are required.
-You can download a disk image containing all files at [SCTP_NKE_HighSierra_02.dmg](https://github.com/sctplab/SCTP_NKE_HighSierra/releases/download/v01/SCTP_NKE_HighSierra_02.dmg).
+You can download a disk image containing all files at [SCTP_NKE_HighSierra_02.dmg](https://github.com/sctplab/SCTP_NKE_HighSierra/releases/download/02/SCTP_NKE_HighSierra_02.dmg).
 
 ### Prerequisites
 It is assumed that the comand line tools are installed. This can be done
