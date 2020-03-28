@@ -690,7 +690,7 @@ sctp_start_main_timer(void) {
 	/* bound the timer (in msec) */
 	if ((int)SCTP_BASE_SYSCTL(sctp_main_timer) < 1000/hz)
 		SCTP_BASE_SYSCTL(sctp_main_timer) = 1000/hz;
-	SCTP_BASE_VAR(sctp_main_timer_ticks) = MSEC_TO_TICKS(SCTP_BASE_SYSCTL(sctp_main_timer));
+	SCTP_BASE_VAR(sctp_main_timer_ticks) = sctp_msecs_to_ticks(SCTP_BASE_SYSCTL(sctp_main_timer));
 	timeout(sctp_timeout, NULL, SCTP_BASE_VAR(sctp_main_timer_ticks));
 }
 
